@@ -1,39 +1,34 @@
-# Python Headers
-import os 
-import csv
+import time
 import math
 import numpy as np
-from numpy import linalg as la
-import scipy.signal as signal
-from line_fit import line_fit, tune_fit, bird_fit, final_viz
-import pathlib
-import os
-
-# ROS Headers
+import cv2
 import rospy
+import os
+import pathlib
 
-# GEM Sensor Headers
-from std_msgs.msg import String, Bool, Float32, Float64, Float64MultiArray
+from line_fit import line_fit, tune_fit, bird_fit, final_viz
+from Line import Line
 from sensor_msgs.msg import Image
+from std_msgs.msg import Header
 from cv_bridge import CvBridge, CvBridgeError
+from std_msgs.msg import Float32
+# from skimage import morphology
 
+import argparse
 
 parser = argparse.ArgumentParser()
-parser.add_argument('--vis_mode', action='store_true')
-parser.add_argument('--append_str', '-a', type=str, default='tmp')
-parser.add_argument('--specified_name', '-s', type=str)
 parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
-parser.add_argument('--sat_thresh', type=str, default='80,255')
-parser.add_argument('--val_thresh', type=str, default='100,255')
+parser.add_argument('--sat_thresh', type=str, default='60,255')
+parser.add_argument('--val_thresh', type=str, default='50,255')
+parser.add_argument('--hue_thresh', type=str, default='10,40')
 parser.add_argument('--dilate_size', type=int, default=5)
-parser.add_argument('--laplacian_thres', '-l', type=int, default=0)
 parser.add_argument('--perspective_pts', '-p',
-                    type=str, default='481,786,224,0')
-
+                    type=str, default='121,470,312,0')
 args = parser.parse_args()
 
+OUTPUT_DIR = './output'
 TEST_DIR = '/Users/jackyyeh/Desktop/Courses/UIUC/ECE484-Principles-Of-Safe-Autonomy/assignments/MP1/test_imgs'
-TMP_DIR = './vis_{}'.format(args.append_str)
+# TMP_DIR = './vis_{}'.format(args.append_str)
 grad_thres_min, grad_thres_max = args.gradient_thresh.split(',')
 grad_thres_min, grad_thres_max = int(grad_thres_min), int(grad_thres_max)
 assert grad_thres_min < grad_thres_max
@@ -44,25 +39,40 @@ assert val_thres_min < val_thres_max
 
 sat_thres_min, sat_thres_max = args.sat_thresh.split(',')
 sat_thres_min, sat_thres_max = int(sat_thres_min), int(sat_thres_max)
-assert sat_thres_min < sat_thres_max
+
+hue_thres_min, hue_thres_max = args.hue_thresh.split(',')
+hue_thres_min, hue_thres_max = int(hue_thres_min), int(hue_thres_max)
+assert hue_thres_min < hue_thres_max
 
 src_leftx, src_rightx, laney, offsety = args.perspective_pts.split(',')
 src_leftx, src_rightx, laney, offsety = int(
     src_leftx), int(src_rightx), int(laney), int(offsety)
 
 
-class LaneDetetor():
+def imshow(window_name, image):
+    cv2.imshow(window_name, image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+
+class lanenet_detector():
     def __init__(self, test_mode=False):
         self.test_mode = test_mode
         if not self.test_mode:
             self.bridge = CvBridge()
+            # NOTE
             self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback, queue_size=1)
+            
             self.pub_image = rospy.Publisher(
                 "lane_detection/annotate", Image, queue_size=1)
             self.pub_bird = rospy.Publisher(
                 "lane_detection/birdseye", Image, queue_size=1)
+            self.left_line = Line(n=5)
+            self.right_line = Line(n=5)
             self.detected = False
-            
+            self.hist = True
+            self.counter = 0
+
     def img_callback(self, data):
 
         try:
@@ -137,18 +147,9 @@ class LaneDetetor():
         binary_output = np.zeros_like(l)
         sat_cond = ((sat_thres_min <= s) & (s <= sat_thres_max)) | (s == 0)
         val_cond = (val_thres_min <= l) & (l <= val_thres_max)
-        binary_output[val_cond & sat_cond] = 1
+        hue_cond = (hue_thres_min <= h) & (h <= hue_thres_max)
+        binary_output[val_cond & sat_cond & hue_cond] = 1
 
-        return binary_output
-
-    def laplacian_thres(self, img, laplacian_thres=args.laplacian_thres):
-        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        laplacian = cv2.Laplacian(gray_img, cv2.CV_64F, ksize=3)
-
-        # Convert the result to an absolute value
-        laplacian_abs = np.abs(laplacian).astype(np.uint8)
-        binary_output = np.zeros_like(laplacian_abs)
-        binary_output[laplacian_abs > laplacian_thres] = 1
         return binary_output
 
     def combinedBinaryImage(self, img):
@@ -159,27 +160,18 @@ class LaneDetetor():
         # 2. Combine the outputs
         # Here you can use as many methods as you want.
 
-        if args.save_freq > 0 and self.counter % args.save_freq == 0:
-            pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
-            cv2.imwrite(os.path.join(
-                OUTPUT_DIR, '{}.png').format(self.counter), img)
-        self.counter += 1
-
         SobelOutput = self.gradient_thresh(img)
         ColorOutput = self.color_thresh(
             img, val_thres_min, val_thres_max, sat_thres_min, sat_thres_max)
 
-        # imshow("ColorOutput", ColorOutput*255)
         kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (args.dilate_size, args.dilate_size))
         ColorOutput = cv2.dilate(ColorOutput, kernel, iterations=1)
         # imshow("dilate ColorOutput", ColorOutput*255)
 
-        LaplacianOutput = self.laplacian_thres(img)
-
         binaryImage = np.zeros_like(SobelOutput)
-        binaryImage[(ColorOutput == 1) & (SobelOutput == 1)
-                    & (LaplacianOutput == 1)] = 1
+        binaryImage[(ColorOutput == 1)] = 1
+        # binaryImage[(ColorOutput == 1) & (SobelOutput == 1)] = 1
 
         # Remove noise from binary image
         # binaryImage = morphology.remove_small_objects(binaryImage.astype('bool'),min_size=50,connectivity=2)
@@ -290,14 +282,9 @@ class LaneDetetor():
             return combine_fit_img, bird_fit_img
 
 
-def main():
+if __name__ == '__main__':
     # init args
     rospy.init_node('lanenet_node', anonymous=True)
-    ld = LaneDetetor()
+    lanenet_detector()
     while not rospy.core.is_shutdown():
         rospy.rostime.wallsleep(0.5)
-
-if __name__ == '__main__':
-    main()
-
-

@@ -9,119 +9,184 @@ import pickle
 # feel free to adjust the parameters in the code if necessary
 
 def line_fit(binary_warped):
-	"""
-	Find and fit lane lines
-	"""
-	# Assuming you have created a warped binary image called "binary_warped"
-	# Take a histogram of the bottom half of the image
-	histogram = np.sum(binary_warped[binary_warped.shape[0]//2:,:], axis=0)
-	# Create an output image to draw on and visualize the result
-	out_img = (np.dstack((binary_warped, binary_warped, binary_warped))*255).astype('uint8')
-	# Find the peak of the left and right halves of the histogram
-	# These will be the starting point for the left and right lines
-	midpoint = np.int32(histogram.shape[0]/2)
-	leftx_base = np.argmax(histogram[100:midpoint]) + 100
-	rightx_base = np.argmax(histogram[midpoint:-100]) + midpoint
+    """
+    Find and fit lane lines
+    """
+    # Assuming you have created a warped binary image called "binary_warped"
+    # Take a histogram of the bottom half of the image
+    
+    
+    # Find the contours
+    contours, _ = cv2.findContours(binary_warped, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contour_canvas = np.zeros_like(binary_warped)
+    cv2.drawContours(contour_canvas, contours, -1, 255, 1)
+    binary_warped = contour_canvas.copy()
+    # imshow("binary_warped", binary_warped)
+    
+    # Draw the contours on the copy of the original image
+    y_begin = 50
+    histogram = np.sum(binary_warped[-y_begin:-10, :], axis=0)
+    # plotHist(histogram)
 
-	# Choose the number of sliding windows
-	nwindows = 9
-	# Set height of windows
-	window_height = np.int32(binary_warped.shape[0]/nwindows)
-	# Identify the x and y positions of all nonzero pixels in the image
-	nonzero = binary_warped.nonzero()
-	nonzeroy = np.array(nonzero[0])
-	nonzerox = np.array(nonzero[1])
-	# Current positions to be updated for each window
-	leftx_current = leftx_base
-	rightx_current = rightx_base
-	# Set the width of the windows +/- margin
-	margin = 100
-	# Set minimum number of pixels found to recenter window
-	minpix = 50
-	# Create empty lists to receive left and right lane pixel indices
-	left_lane_inds = []
-	right_lane_inds = []
+    # Create an output image to draw on and visualize the result
+    out_img = (np.dstack((binary_warped, binary_warped,
+               binary_warped))*255).astype('uint8')
 
-	# Step through the windows one by one
-	for i in range(nwindows):
-		win_top = binary_warped.shape[0] - (i + 1) * window_height
-		win_bottom = win_top + window_height
+    # sliding window
+    height, width = binary_warped.shape
+    sliding_offset = 5
+    margin = 150
+    best_base_x = -1
+    best_num_pixels = -1
+    best_even_ratio = -1
+    for base in range(margin, width-margin, sliding_offset):
+        left_num_pixels = np.sum(histogram[base-margin:base])
+        right_num_pixels = np.sum(histogram[base:base+margin])
+        total_num_pixels = left_num_pixels + right_num_pixels
+        if total_num_pixels == 0:
+            continue
+        even_ratio = float(left_num_pixels) / total_num_pixels * float(right_num_pixels) / total_num_pixels
+        
+        # We matter even_ratio more than num_pixels
+        if even_ratio > best_even_ratio and total_num_pixels > best_num_pixels * 0.8:
+            best_even_ratio = even_ratio
+            best_num_pixels = total_num_pixels
+            best_base_x = base
+        
+    # Choose the number of sliding windows
+    nwindows = 15
+    # Set height of windows
+    # window_height = int(binary_warped.shape[0]/nwindows)
+    window_height = 20
+    
+    ### visualization base
+    # vis = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
+    # vis = cv2.rectangle(
+    #     vis, (best_base_x - margin, height - window_height), (best_base_x + margin, height), (0, 0, 255))
+    # imshow("vis", vis)
 
-		# Identify window boundaries in x and y (and right and left)
-		# left
-		left_lt = [leftx_current - margin, win_top]
-		left_rb = [leftx_current + margin, win_bottom]
-		# right
-		right_lt = [rightx_current - margin, win_top]
-		right_rb = [rightx_current + margin, win_bottom]
+    # Find the peak of the left and right halves of the histogram
+    # These will be the starting point for the left and right lines
+    # midpoint = int(histogram.shape[0]/2)
+    # leftx_base = np.argmax(histogram[100:midpoint]) + 100
+    # rightx_base = np.argmax(histogram[midpoint:-100]) + midpoint
+    leftx_base = np.argmax(histogram[10:best_base_x]) + 10
+    rightx_base = np.argmax(histogram[best_base_x:-10]) + best_base_x
+    
+    # Identify the x and y positions of all nonzero pixels in the image
+    nonzero = binary_warped.nonzero()
+    nonzeroy = np.array(nonzero[0])
+    nonzerox = np.array(nonzero[1])
 
-		# vis
-		# Draw the windows on the visualization image using cv2.rectangle()
-		# color_warped = cv2.rectangle(
-		# 	color_warped, left_lt, left_rb, (0, 0, 255))
-		# color_warped = cv2.rectangle(
-		# 	color_warped, right_lt, right_rb, (0, 0, 255))
+    # Current positions to be updated for each window
+    leftx_current = leftx_base
+    rightx_current = rightx_base
+    # Set the width of the windows +/- margin
+    margin = 30
+    # Set minimum number of pixels found to recenter window
+    minpix = 15
+    # Create empty lists to receive left and right lane pixel indices
+    left_lane_inds = []
+    right_lane_inds = []
 
-		####
-		# Identify the nonzero pixels in x and y within the window
-		left_window_inds = np.where((nonzerox > leftx_current - margin) &
-									(nonzerox < leftx_current + margin) &
-									(nonzeroy > win_top) &
-									(nonzeroy < win_bottom))
-		right_window_inds = np.where((nonzerox > rightx_current - margin) &
-									(nonzerox < rightx_current + margin) &
-									(nonzeroy > win_top) &
-									(nonzeroy < win_bottom))
-		####
-		# Append these indices to the lists
-		left_lane_inds.append(left_window_inds[0])
-		right_lane_inds.append(right_window_inds[0])
+    # Step through the windows one by one
+    color_warped = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
+    color_warped[color_warped > 0] = 255
+    for i in range(nwindows):
+        win_top = binary_warped.shape[0] - (i + 1) * window_height
+        win_bottom = win_top + window_height
 
-		####
-		# If you found > minpix pixels, recenter next window on their mean position
-		left_nonzerox = nonzerox[left_window_inds]
-		if len(left_nonzerox) > minpix:
-			leftx_current = int(np.mean(left_nonzerox))
+        # Identify window boundaries in x and y (and right and left)
+        # left
+        left_lt = [leftx_current - margin, win_top]
+        left_rb = [leftx_current + margin, win_bottom]
+        # right
+        right_lt = [rightx_current - margin, win_top]
+        right_rb = [rightx_current + margin, win_bottom]
 
-		right_nonzerox = nonzerox[right_window_inds]
-		if len(right_nonzerox) > minpix:
-			rightx_current = int(np.mean(right_nonzerox))
+        ### Draw the windows on the visualization image using cv2.rectangle() ###
+        color_warped = cv2.rectangle(
+            color_warped, left_lt, left_rb, (0, 255, 0))
+        color_warped = cv2.rectangle(
+            color_warped, right_lt, right_rb, (0, 255, 0))
+        # imshow("color_warped", color_warped)
 
+        ####
+        # Identify the nonzero pixels in x and y within the window
+        left_window_inds = np.where((nonzerox > leftx_current - margin) &
+                                    (nonzerox < leftx_current + margin) &
+                                    (nonzeroy > win_top) &
+                                    (nonzeroy < win_bottom))
+        right_window_inds = np.where((nonzerox > rightx_current - margin) &
+                                     (nonzerox < rightx_current + margin) &
+                                     (nonzeroy > win_top) &
+                                     (nonzeroy < win_bottom))
+        ####
+        # Append these indices to the lists
+        left_lane_inds.append(left_window_inds[0])
+        right_lane_inds.append(right_window_inds[0])
 
-	# Concatenate the arrays of indices
-	left_lane_inds = np.concatenate(left_lane_inds)
-	right_lane_inds = np.concatenate(right_lane_inds)
+        
+        ####
+        # If you found > minpix pixels, recenter next window on their mean position
+        left_nonzerox = nonzerox[left_window_inds]
+        if len(left_nonzerox) > minpix:
+            leftx_current = int(np.mean(left_nonzerox))
 
-	# Extract left and right line pixel positions
-	leftx = nonzerox[left_lane_inds]
-	lefty = nonzeroy[left_lane_inds]
-	rightx = nonzerox[right_lane_inds]
-	righty = nonzeroy[right_lane_inds]
+        right_nonzerox = nonzerox[right_window_inds]
+        if len(right_nonzerox) > minpix:
+            rightx_current = int(np.mean(right_nonzerox))
 
-	# Fit a second order polynomial to each using np.polyfit()
-	# If there isn't a good fit, meaning any of leftx, lefty, rightx, and righty are empty,
-	# the second order polynomial is unable to be sovled.
-	# Thus, it is unable to detect edges.
-	try:
-		left_fit = np.polyfit(lefty, leftx, deg=2)
-		right_fit = np.polyfit(righty, rightx, deg=2)
-	except TypeError:
-		print("Unable to detect lanes")
-		return None
+    # Concatenate the arrays of indices
+    left_lane_inds = np.concatenate(left_lane_inds)
+    right_lane_inds = np.concatenate(right_lane_inds)
 
+    # Extract left and right line pixel positions
+    leftx = nonzerox[left_lane_inds]
+    lefty = nonzeroy[left_lane_inds]
+    rightx = nonzerox[right_lane_inds]
+    righty = nonzeroy[right_lane_inds]
 
-	# Return a dict of relevant variables
-	ret = {}
-	ret['left_fit'] = left_fit
-	ret['right_fit'] = right_fit
-	ret['nonzerox'] = nonzerox
-	ret['nonzeroy'] = nonzeroy
-	ret['out_img'] = out_img
-	ret['left_lane_inds'] = left_lane_inds
-	ret['right_lane_inds'] = right_lane_inds
+    # Fit a second order polynomial to each using np.polyfit()
+    # If there isn't a good fit, meaning any of leftx, lefty, rightx, and righty are empty,
+    # the second order polynomial is unable to be sovled.
+    # Thus, it is unable to detect edges.
+    try:
+        # left_fit = np.polyfit(leftx, lefty, deg=2)
+        # right_fit = np.polyfit(rightx, righty, deg=2)
+        left_fit = np.polyfit(lefty, leftx, deg=2)
+        right_fit = np.polyfit(righty, rightx, deg=2)
 
-	return ret
+        ### vis points nonzero ###
+        # for x, y in zip(rightx, righty):
+        #     color_warped = cv2.circle(color_warped, (x, y), 1, (0,255, 0), -1)
+        # imshow("points", color_warped )
 
+        ### vis draw curvature ###
+        # drawCurvature(color_warped, leftx, left_fit)
+        # drawCurvature(color_warped, rightx, right_fit)
+
+        ### vis fill poly ###
+        # coordinates = np.array(list(zip(leftx, lefty)))
+        # cv2.fillPoly(color_warped, [coordinates], (0, 255, 0))
+        # newwarp = cv2.warpPerspective(color_warp, Minv, (img_shape[1], img_shape[0]))
+        # imshow("fill_poly", color_warped)
+
+    except TypeError:
+        print("Unable to detect lanes")
+        return None
+
+    # Return a dict of relevant variables
+    ret = {}
+    ret['left_fit'] = left_fit
+    ret['right_fit'] = right_fit
+    ret['nonzerox'] = nonzerox
+    ret['nonzeroy'] = nonzeroy
+    ret['out_img'] = out_img
+    ret['left_lane_inds'] = left_lane_inds
+    ret['right_lane_inds'] = right_lane_inds
+
+    return ret
 
 def tune_fit(binary_warped, left_fit, right_fit):
 	"""
