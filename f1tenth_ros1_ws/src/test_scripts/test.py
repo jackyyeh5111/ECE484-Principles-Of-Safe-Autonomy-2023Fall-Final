@@ -414,22 +414,57 @@ def line_fit(binary_warped):
     """
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
-    histogram = np.sum(binary_warped[binary_warped.shape[0]//2:, :], axis=0)
+    y_begin = 20
+    histogram = np.sum(binary_warped[-y_begin:, :], axis=0)
     plotHist(histogram)
 
     # Create an output image to draw on and visualize the result
     out_img = (np.dstack((binary_warped, binary_warped,
                binary_warped))*255).astype('uint8')
-    # Find the peak of the left and right halves of the histogram
-    # These will be the starting point for the left and right lines
-    midpoint = int(histogram.shape[0]/2)
-    leftx_base = np.argmax(histogram[100:midpoint]) + 100
-    rightx_base = np.argmax(histogram[midpoint:-100]) + midpoint
 
+    # sliding window
+    height, width = binary_warped.shape
+    sliding_offset = 5
+    margin = 150
+    best_base_x = -1
+    best_num_pixels = -1
+    best_even_ratio = -1
+    for base in range(margin, width-margin, sliding_offset):
+        left_num_pixels = np.sum(histogram[base-margin:base])
+        right_num_pixels = np.sum(histogram[base:base+margin])
+        total_num_pixels = left_num_pixels + right_num_pixels
+        if total_num_pixels == 0:
+            continue
+        even_ratio = float(left_num_pixels) / total_num_pixels * float(right_num_pixels) / total_num_pixels
+        
+        # We matter even_ratio more than num_pixels
+        if even_ratio > best_even_ratio and total_num_pixels > best_num_pixels * 0.8:
+            best_even_ratio = even_ratio
+            best_num_pixels = total_num_pixels
+            best_base_x = base
+        
     # Choose the number of sliding windows
     nwindows = 9
     # Set height of windows
-    window_height = int(binary_warped.shape[0]/nwindows)
+    # window_height = int(binary_warped.shape[0]/nwindows)
+    window_height = 30
+    
+    ### visualization base
+    # vis = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
+    # vis = cv2.rectangle(
+    #     vis, (best_base_x - margin, height - window_height), (best_base_x + margin, height), (0, 0, 255))
+    # imshow("vis", vis)
+
+    # Find the peak of the left and right halves of the histogram
+    # These will be the starting point for the left and right lines
+    # midpoint = int(histogram.shape[0]/2)
+    # leftx_base = np.argmax(histogram[100:midpoint]) + 100
+    # rightx_base = np.argmax(histogram[midpoint:-100]) + midpoint
+    leftx_base = np.argmax(histogram[10:best_base_x]) + 10
+    rightx_base = np.argmax(histogram[best_base_x:-10]) + best_base_x
+    print ("leftx_base:", leftx_base)
+    print ("rightx_base:", rightx_base)
+    
     # Identify the x and y positions of all nonzero pixels in the image
     nonzero = binary_warped.nonzero()
     nonzeroy = np.array(nonzero[0])
@@ -439,9 +474,9 @@ def line_fit(binary_warped):
     leftx_current = leftx_base
     rightx_current = rightx_base
     # Set the width of the windows +/- margin
-    margin = 100
+    margin = 20
     # Set minimum number of pixels found to recenter window
-    minpix = 50
+    minpix = 20
     # Create empty lists to receive left and right lane pixel indices
     left_lane_inds = []
     right_lane_inds = []
@@ -460,13 +495,12 @@ def line_fit(binary_warped):
         right_lt = [rightx_current - margin, win_top]
         right_rb = [rightx_current + margin, win_bottom]
 
-        # vis
-        # Draw the windows on the visualization image using cv2.rectangle()
+        ### Draw the windows on the visualization image using cv2.rectangle() ###
         color_warped = cv2.rectangle(
-            color_warped, left_lt, left_rb, (0, 0, 255))
+            color_warped, left_lt, left_rb, (0, 255, 0))
         color_warped = cv2.rectangle(
-            color_warped, right_lt, right_rb, (0, 0, 255))
-        # imshow("color_warped", color_warped)
+            color_warped, right_lt, right_rb, (0, 255, 0))
+        imshow("color_warped", color_warped)
 
         ####
         # Identify the nonzero pixels in x and y within the window
@@ -483,6 +517,7 @@ def line_fit(binary_warped):
         left_lane_inds.append(left_window_inds[0])
         right_lane_inds.append(right_window_inds[0])
 
+        
         ####
         # If you found > minpix pixels, recenter next window on their mean position
         left_nonzerox = nonzerox[left_window_inds]
@@ -561,7 +596,7 @@ def run(img_path):
     combined = combinedBinaryImage(img)
     binary_warped, M, Minv = perspective_transform(combined, img)
 
-    # ret = line_fit(binary_warped)
+    ret = line_fit(binary_warped)
 
     # color_warped = cv2.cvtColor(binary_warped, cv2.COLOR_GRAY2BGR)
     # leftx = ret['nonzerox'][ret['left_lane_inds']]
@@ -595,11 +630,11 @@ def run(img_path):
     vis_combined = cv2.imread(os.path.join(TMP_DIR, 'combined.png'))
     color_warped = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
     putText(color_warped, "bird eye")
-    # vis_warped = cv2.imread(os.path.join(TMP_DIR, 'warped.png'))
-    # vis_hist = cv2.imread(os.path.join(TMP_DIR, 'hist.png'))
-    # vis_hist = fixedAspectRatioResize(
-    #     vis_hist, desired_width=vis_combined.shape[1])
-    concat = cv2.vconcat([vis_combined, color_warped])
+    vis_warped = cv2.imread(os.path.join(TMP_DIR, 'warped.png'))
+    vis_hist = cv2.imread(os.path.join(TMP_DIR, 'hist.png'))
+    vis_hist = fixedAspectRatioResize(
+        vis_hist, desired_width=vis_combined.shape[1])
+    concat = cv2.vconcat([vis_combined, color_warped, vis_hist, vis_warped])
     if args.vis_mode:
         imshow("concat", concat)
     if args.vis_output:
