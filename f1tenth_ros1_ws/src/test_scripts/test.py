@@ -280,21 +280,22 @@ def combinedBinaryImage(img):
     #     ColorOutput = cv2.dilate(ColorOutput, kernel, iterations=1)
     # imshow("dilate ColorOutput", ColorOutput*255)
 
-    binaryImage = np.zeros_like(ColorOutput)
-    binaryImage[(ColorOutput == 1) & (SobelOutput == 1)] = 1
+    # use color and gradient
+    # binaryImage = np.zeros_like(ColorOutput)
+    # binaryImage[(ColorOutput == 1) & (SobelOutput == 1)] = 1
+    # vis_SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
+    # putText(vis_SobelOutput, "gradient thres")
+    # vis_ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
+    # putText(vis_ColorOutput, "color thres")
+    # concat = cv2.vconcat([img, vis_SobelOutput, vis_ColorOutput])
 
-    ### for visualization ###
-    vis_SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
-    putText(vis_SobelOutput, "gradient thres")
+    # Use color only
+    binaryImage = np.zeros_like(ColorOutput)
+    binaryImage[(ColorOutput == 1)] = 1
     vis_ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
     putText(vis_ColorOutput, "color thres")
-    # vis_binaryImage = cv2.cvtColor(binaryImage*255, cv2.COLOR_GRAY2BGR)
-    # putText(vis_binaryImage, "combined")
-    # vis_LaplacianOutput = cv2.cvtColor(LaplacianOutput*255, cv2.COLOR_GRAY2BGR)
-    # putText(vis_LaplacianOutput, "laplacian")
-
-    concat = cv2.vconcat([img, vis_SobelOutput, vis_ColorOutput])
-
+    concat = cv2.vconcat([img, vis_ColorOutput])
+    
     # Remove noise from binary image
     kernel = np.ones((5, 5), np.uint8)
     binaryImage = cv2.morphologyEx(
@@ -374,6 +375,7 @@ def plotHist(hist):
     # Display the line chart
     pathlib.Path(TMP_DIR).mkdir(parents=True, exist_ok=True)
     plt.savefig(os.path.join(TMP_DIR, 'hist.png'))
+    plt.clf()
 
 
 def fixedAspectRatioResize(img, desired_height=None, desired_width=None):
@@ -414,8 +416,18 @@ def line_fit(binary_warped):
     """
     # Assuming you have created a warped binary image called "binary_warped"
     # Take a histogram of the bottom half of the image
-    y_begin = 20
-    histogram = np.sum(binary_warped[-y_begin:, :], axis=0)
+    
+    
+    # Find the contours
+    contours, _ = cv2.findContours(binary_warped, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contour_canvas = np.zeros_like(binary_warped)
+    cv2.drawContours(contour_canvas, contours, -1, 255, 1)
+    binary_warped = contour_canvas.copy()
+    # imshow("binary_warped", binary_warped)
+    
+    # Draw the contours on the copy of the original image
+    y_begin = 50
+    histogram = np.sum(binary_warped[-y_begin:-10, :], axis=0)
     plotHist(histogram)
 
     # Create an output image to draw on and visualize the result
@@ -444,10 +456,10 @@ def line_fit(binary_warped):
             best_base_x = base
         
     # Choose the number of sliding windows
-    nwindows = 9
+    nwindows = 15
     # Set height of windows
     # window_height = int(binary_warped.shape[0]/nwindows)
-    window_height = 30
+    window_height = 20
     
     ### visualization base
     # vis = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
@@ -474,15 +486,16 @@ def line_fit(binary_warped):
     leftx_current = leftx_base
     rightx_current = rightx_base
     # Set the width of the windows +/- margin
-    margin = 20
+    margin = 30
     # Set minimum number of pixels found to recenter window
-    minpix = 20
+    minpix = 15
     # Create empty lists to receive left and right lane pixel indices
     left_lane_inds = []
     right_lane_inds = []
 
     # Step through the windows one by one
     color_warped = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
+    color_warped[color_warped > 0] = 255
     for i in range(nwindows):
         win_top = binary_warped.shape[0] - (i + 1) * window_height
         win_bottom = win_top + window_height
@@ -500,7 +513,7 @@ def line_fit(binary_warped):
             color_warped, left_lt, left_rb, (0, 255, 0))
         color_warped = cv2.rectangle(
             color_warped, right_lt, right_rb, (0, 255, 0))
-        imshow("color_warped", color_warped)
+        # imshow("color_warped", color_warped)
 
         ####
         # Identify the nonzero pixels in x and y within the window
