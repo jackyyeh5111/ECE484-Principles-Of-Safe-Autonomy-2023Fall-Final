@@ -105,10 +105,10 @@ def line_fit(binary_warped):
         right_rb = [rightx_current + margin, win_bottom]
 
         ### Draw the windows on the visualization image using cv2.rectangle() ###
-        color_warped = cv2.rectangle(
-            color_warped, left_lt, left_rb, (0, 255, 0))
-        color_warped = cv2.rectangle(
-            color_warped, right_lt, right_rb, (0, 255, 0))
+        # color_warped = cv2.rectangle(
+        #     color_warped, left_lt, left_rb, (0, 255, 0))
+        # color_warped = cv2.rectangle(
+        #     color_warped, right_lt, right_rb, (0, 255, 0))
         # imshow("color_warped", color_warped)
 
         ####
