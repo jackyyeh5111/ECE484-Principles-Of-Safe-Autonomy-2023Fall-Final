@@ -62,7 +62,7 @@ class lanenet_detector():
             self.bridge = CvBridge()
             # NOTE
             self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback, queue_size=1)
-            
+            # self.sub_image = rospy.Subscriber('camera/image_raw', Image, self.img_callback, queue_size=1)
             self.pub_image = rospy.Publisher(
                 "lane_detection/annotate", Image, queue_size=1)
             self.pub_bird = rospy.Publisher(
