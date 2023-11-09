@@ -8,10 +8,9 @@ import matplotlib.pyplot as plt
 import pathlib
 import os
 
-import sys
-sys.path.insert(0, "../")
-
-import lane_detector
+# import sys
+# sys.path.insert(0, "../")
+# import lane_detector
 
 
 parser = argparse.ArgumentParser()
@@ -248,17 +247,6 @@ def color_thresh(img, val_thres_min, val_thres_max, sat_thres_min, sat_thres_max
     return binary_output
 
 
-def laplacian_thres(img, laplacian_thres=args.laplacian_thres):
-    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    laplacian = cv2.Laplacian(gray_img, cv2.CV_64F, ksize=3)
-
-    # Convert the result to an absolute value
-    laplacian_abs = np.abs(laplacian).astype(np.uint8)
-    binary_output = np.zeros_like(laplacian_abs)
-    binary_output[laplacian_abs > laplacian_thres] = 1
-    return binary_output
-
-
 def combinedBinaryImage(img):
     """
     Get combined binary image from color filter and sobel filter
@@ -285,31 +273,21 @@ def combinedBinaryImage(img):
     # use color and gradient
     # binaryImage = np.zeros_like(ColorOutput)
     # binaryImage[(ColorOutput == 1) & (SobelOutput == 1)] = 1
-    # vis_SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
-    # putText(vis_SobelOutput, "gradient thres")
-    # vis_ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
-    # putText(vis_ColorOutput, "color thres")
-    # concat = cv2.vconcat([img, vis_SobelOutput, vis_ColorOutput])
-
-    # Use color only
-    binaryImage = np.zeros_like(ColorOutput)
-    binaryImage[(ColorOutput == 1)] = 1
+    vis_SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
+    putText(vis_SobelOutput, "gradient thres")
     vis_ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
     putText(vis_ColorOutput, "color thres")
-    concat = cv2.vconcat([img, vis_ColorOutput])
-    
+    concat = cv2.vconcat([img, vis_SobelOutput, vis_ColorOutput])
+
     # Remove noise from binary image
-    kernel = np.ones((5, 5), np.uint8)
-    binaryImage = cv2.morphologyEx(
-        binaryImage.astype(np.uint8), cv2.MORPH_CLOSE, kernel)
+    # kernel = np.ones((5, 5), np.uint8)
+    # binaryImage = cv2.morphologyEx(
+    #     binaryImage.astype(np.uint8), cv2.MORPH_CLOSE, kernel)
     # imshow("closing", binaryImage*255)
 
-    # removeNoise = morphology.remove_small_objects(
-    #     binaryImage.astype('bool'), min_size=50, connectivity=2)
-
     # imshow("combined result", concat)
-    cv2.imwrite(os.path.join(TMP_DIR, 'combined.png'), concat)
-    return binaryImage
+    # cv2.imwrite(os.path.join(TMP_DIR, 'combined.png'), concat)
+    return SobelOutput, ColorOutput
 
 
 def perspective_transform(img, raw_img):
@@ -367,7 +345,7 @@ def perspective_transform(img, raw_img):
     return warped_img, M, Minv
 
 
-def plotHist(hist):
+def plotHist(hist, suffix):
     # Create a line chart for the histogram
     plt.plot(range(len(hist)), hist, color='blue', linestyle='-')
     plt.title('Histogram')
@@ -376,7 +354,7 @@ def plotHist(hist):
 
     # Display the line chart
     pathlib.Path(TMP_DIR).mkdir(parents=True, exist_ok=True)
-    plt.savefig(os.path.join(TMP_DIR, 'hist.png'))
+    plt.savefig(os.path.join(TMP_DIR, 'hist_{}.png'.format(suffix)))
     plt.clf()
 
 
@@ -600,6 +578,23 @@ def line_fit(binary_warped):
     return ret
 
 
+def findContourForColor(color_warped):
+    # Find the contours for color (ideeally two contours along the trajectory)
+    contours, _ = cv2.findContours(color_warped, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contour_canvas = np.zeros_like(color_warped)
+    cv2.drawContours(contour_canvas, contours, -1, 1, 1)
+    contour_canvas[5:-5, :] = 0 # contour may follow along the image border
+    
+    # imshow("binary_warped", binary_warped)
+    return contour_canvas
+
+def getHistogram(binary_warped, y_begin = 0):
+    # Draw the contours on the copy of the original image
+    # y_begin = 50
+    histogram = np.sum(binary_warped[-y_begin:, :], axis=0)
+    return histogram
+    
+
 def run(img_path):
     global img_name
     img_name = img_path.strip('.png').split('/')[-1]
@@ -608,9 +603,28 @@ def run(img_path):
     img = cv2.imread(img_path)
     # gradient_thresh(img)
     # color_thresh(img)
-    combined = combinedBinaryImage(img)
-    binary_warped, M, Minv = perspective_transform(combined, img)
+    SobelOutput, ColorOutput = combinedBinaryImage(img)
+    sobel_warped, M, Minv = perspective_transform(SobelOutput, img)
+    color_warped, M, Minv = perspective_transform(ColorOutput, img)
+    color_warped = findContourForColor(color_warped)
 
+    sobel_hist = getHistogram(sobel_warped)
+    color_hist = getHistogram(color_warped)
+    plotHist(sobel_hist, "grad")
+    plotHist(color_hist, "color")
+
+    vis_hist_grad = fixedAspectRatioResize(
+        cv2.imread(os.path.join(TMP_DIR, 'hist_grad.png')), desired_width=color_warped.shape[1])
+    vis_hist_color = fixedAspectRatioResize(
+        cv2.imread(os.path.join(TMP_DIR, 'hist_color.png')), desired_width=color_warped.shape[1])
+
+        
+    vis_grad = np.hstack((cv2.cvtColor(sobel_warped*255, cv2.COLOR_GRAY2BGR), vis_hist_grad))
+    vis_color = np.hstack((cv2.cvtColor(color_warped*255, cv2.COLOR_GRAY2BGR), vis_hist_color))
+    if args.vis_mode:
+        imshow("vis_grad", vis_grad)
+        imshow("vis_color", vis_color)
+        
     ret = line_fit(binary_warped)
 
     # color_warped = cv2.cvtColor(binary_warped, cv2.COLOR_GRAY2BGR)
@@ -670,14 +684,13 @@ if __name__ == '__main__':
     with open(os.path.join(TMP_DIR, 'a_params.txt'), 'w') as f:
         f.write('\n'.join(params))
 
-    img_path = "/Users/jackyyeh/Desktop/Courses/UIUC/ECE484-Principles-Of-Safe-Autonomy/ECE484-Principles-Of-Safe-Autonomy-2023Fall-Final/f1tenth_ros1_ws/src/f1tenth_perception/test_images/0.png"
-    # if args.specified_name:
-    # img_path = os.path.join(TEST_DIR, '{}.png'.format(args.specified_name))
-    run(img_path)
-    # else:
-    #     paths = sorted(os.listdir(TEST_DIR))
-    #     for path in paths:
-    #         if not path.endswith('png'):
-    #             continue
-    #         img_path = os.path.join(TEST_DIR, path)
-    #         run(img_path)
+    if args.specified_name:
+        img_path = os.path.join(TEST_DIR, '{}.png'.format(args.specified_name))
+        run(img_path)
+    else:
+        paths = sorted(os.listdir(TEST_DIR))
+        for path in paths:
+            if not path.endswith('png'):
+                continue
+            img_path = os.path.join(TEST_DIR, path)
+            run(img_path)
