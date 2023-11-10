@@ -411,106 +411,97 @@ def line_fit(binary_warped, histogram, color_warped, img):
                binary_warped))*255).astype('uint8')
 
     # # sliding window
-    # height, width = binary_warped.shape
-    # sliding_offset = 5
-    # margin = 30
-    # best_left_base_x = -1
-    # best_right_base_x = -1
-    # best_num_pixels = -1
-    # best_even_ratio = -1
-    # side_xdist = 120
-    # assert margin*2 < side_xdist
-    # for leftbase in range(margin, width-margin-side_xdist, sliding_offset):
-    #     rightbase = leftbase + side_xdist
-    #     left_num_pixels = np.sum(histogram[leftbase-margin:leftbase+margin])
-    #     right_num_pixels = np.sum(histogram[rightbase-margin:rightbase+margin])
-    #     total_num_pixels = left_num_pixels + right_num_pixels
-    #     if total_num_pixels == 0:
-    #         continue
-    #     even_ratio = float(left_num_pixels) / total_num_pixels * float(right_num_pixels) / total_num_pixels
-
-    #     # We matter even_ratio more than num_pixels
-    #     if even_ratio > best_even_ratio and total_num_pixels > best_num_pixels * 0.8:
-    #         best_even_ratio = even_ratio
-    #         best_num_pixels = total_num_pixels
-    #         best_left_base_x = leftbase
-    #         best_right_base_x = rightbase
-
-    # sliding window
     height, width = binary_warped.shape
     sliding_offset = 5
-    window_width = 180
-    diff_grad_thres = 20
-    window_height = 20
     margin = 30
+    best_left_base_x = -1
+    best_right_base_x = -1
+    best_num_pixels = -1
+    best_even_ratio = -1
     side_xdist = 120
+    assert margin*2 < side_xdist
+    for leftbase in range(margin, width-margin-side_xdist, sliding_offset):
+        rightbase = leftbase + side_xdist
+        left_num_pixels = np.sum(histogram[leftbase-margin:leftbase+margin])
+        right_num_pixels = np.sum(histogram[rightbase-margin:rightbase+margin])
+        total_num_pixels = left_num_pixels + right_num_pixels
+        if total_num_pixels == 0:
+            continue
+        even_ratio = float(left_num_pixels) / total_num_pixels * float(right_num_pixels) / total_num_pixels
 
-    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray_warped, M, Minv = perspective_transform(gray_img, img)
-    blurred_img = cv2.GaussianBlur(gray_warped, (5, 5), 0)
-    sobel_x = cv2.Sobel(blurred_img, cv2.CV_64F, 1, 0, ksize=3)
+        # We matter even_ratio more than num_pixels
+        if even_ratio > best_even_ratio and total_num_pixels > best_num_pixels * 0.8:
+            best_even_ratio = even_ratio
+            best_num_pixels = total_num_pixels
+            best_left_base_x = leftbase
+            best_right_base_x = rightbase
 
-    def getSidePoints(y):
-        max_num_pixel = -1
-        base_leftx = -1
-        base_rightx = -1
-        is_success = False
+    # sliding window
+    # height, width = binary_warped.shape
+    # sliding_offset = 5
+    # window_width = 180
+    # diff_grad_thres = 50
+    # diff_xdistance_thres = 90
+    # window_height = 20
 
-        # image border contains gradient noise, so +-10 pixels here
-        for leftbase in range(margin, width-margin-side_xdist, sliding_offset):
-            rightbase = leftbase + side_xdist
-            grads = sobel_x[y]
+    # gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # gray_warped, M, Minv = perspective_transform(gray_img, img)
+    # blurred_img = cv2.GaussianBlur(gray_warped, (5, 5), 0)
+    # sobel_x = cv2.Sobel(blurred_img, cv2.CV_64F, 1, 0, ksize=3)
 
-            # min_grad, max_grad, min_loc, max_loc = cv2.minMaxLoc(grads)
+    # def getSidePoints(y):
+    #     max_num_pixel = -1
+    #     base_leftx = -1
+    #     base_rightx = -1
+    #     is_success = False
+
+    #     # image border contains gradient noise, so +-10 pixels here
+    #     for start_x in range(10, width-10, sliding_offset):
+    #         end_x = start_x + window_width
+    #         grads = sobel_x[y, start_x:end_x]
+
+    #         min_grad, max_grad, min_loc, max_loc = cv2.minMaxLoc(grads)
             
-            leftx = np.argmax(grads[leftbase-margin:leftbase+margin]) +leftbase-margin# left part
-            rightx = np.argmin(grads[rightbase-margin:rightbase+margin]) +rightbase-margin# right part
-            min_grad = grads[rightx]
-            max_grad = grads[leftx]
+    #         min_loc = np.argmin(grads[:window_width]) # left part
+    #         min_loc = np.argmax(grads[-window_width:]) # right part
             
-            diff_grad = max_grad - min_grad
+    #         min_loc = min_loc[1] + start_x
+    #         max_loc = max_loc[1] + start_x
+    #         diff_grad = max_grad - min_grad
+    #         diff_xdistance = max_loc - min_loc
 
-            num_pixel = np.count_nonzero(color_warped[y, leftx:rightx])
-            # num_pixels = np.sum(histogram[leftbase-margin:leftbase+margin])
+    #         num_pixel = np.count_nonzero(binary_warped[y, start_x:end_x])
 
-            ### visualize box ###
-            print ('----------')
-            print ("min loc(right):{} min_grad:".format(rightx), min_grad)
-            print ("max loc(left):{} max_grad:".format(leftx), max_grad)
-            print ("num_pixel:", num_pixel)
-            print ("diff_grad:", diff_grad)
-            
-            # vis = img.copy()
-            # vis = cv2.rectangle(
-            #     vis, (leftx, y), (rightx, y), (0, 0, 255))
-            # imshow("vis", vis)
+    #         ### visualize box ###
+    #         print ('----------')
+    #         print ("min loc:{} min_grad:".format(min_loc), min_grad)
+    #         print ("max loc:{} max_grad:".format(max_loc), max_grad)
+    #         print ("diff_xdistance:", diff_xdistance)
+    #         print ("num_pixel:", num_pixel)
+    #         # vis = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
+    #         if num_pixel > max_num_pixel and \
+    #                 diff_xdistance > diff_xdistance_thres and \
+    #                 diff_grad > diff_grad_thres:
+    #             base_leftx = max_loc
+    #             base_rightx = min_loc
+    #             max_num_pixel = num_pixel
+    #             is_success = True
+    #             # print ('----------')
+    #             # print ("min loc:{} min_grad:".format(min_loc), min_grad)
+    #             # print ("max loc:{} max_grad:".format(max_loc), max_grad)
+    #             # print ("num_pixel:", num_pixel)
 
-            # vis = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
-            if num_pixel > max_num_pixel and diff_grad > diff_grad_thres:
-                base_leftx = leftx
-                base_rightx = rightx
-                max_num_pixel = num_pixel
-                is_success = True
-                
-                # print ('----------')
-                # print ("left loc:{} max_grad:".format(leftx), max_grad)
-                # print ("right loc:{} min_grad:".format(rightx), min_grad)
-                # print ("num_pixel:", num_pixel)
+    #             # vis = img.copy()
+    #             # vis = cv2.rectangle(
+    #             #     vis, (start_x, y), (start_x + window_width, y), (0, 0, 255))
+    #             # imshow("vis", vis)
 
-                # vis = img.copy()
-                # vis = cv2.rectangle(vis, (leftx, y), (rightx, y), (0, 0, 255))
-                # imshow("vis", vis)
+    #     return is_success, base_leftx, base_rightx
 
-        return is_success, base_leftx, base_rightx
-
-    start_y = height - 5
-    is_success, best_left_base_x, best_right_base_x = getSidePoints(start_y)
-    print ("best_left_base_x:", best_left_base_x)
-    print ("best_right_base_x:", best_right_base_x)
-    # exit(1)
-    
-    if not is_success:
-        assert ("Cannot get base points")
+    # start_y = height - 5
+    # is_success, leftx_base, rightx_base = getSidePoints(start_y)
+    # if not is_success:
+    #     assert ("Cannot get base points")
 
     # Choose the number of sliding windows
     nwindows = 15
@@ -604,45 +595,6 @@ def line_fit(binary_warped, histogram, color_warped, img):
     # cv2.imwrite(os.path.join(TMP_DIR, 'warped.png'), color_warped)
     # imshow("color_warped", color_warped)
 
-    # Concatenate the arrays of indices
-    left_lane_inds = np.concatenate(left_lane_inds)
-    right_lane_inds = np.concatenate(right_lane_inds)
-
-    # Extract left and right line pixel positions
-    leftx = nonzerox[left_lane_inds]
-    lefty = nonzeroy[left_lane_inds]
-    rightx = nonzerox[right_lane_inds]
-    righty = nonzeroy[right_lane_inds]
-
-    # Fit a second order polynomial to each using np.polyfit()
-    # If there isn't a good fit, meaning any of leftx, lefty, rightx, and righty are empty,
-    # the second order polynomial is unable to be sovled.
-    # Thus, it is unable to detect edges.
-    try:
-        # left_fit = np.polyfit(leftx, lefty, deg=2)
-        # right_fit = np.polyfit(rightx, righty, deg=2)
-        left_fit = np.polyfit(lefty, leftx, deg=2)
-        right_fit = np.polyfit(righty, rightx, deg=2)
-
-        ### vis points nonzero ###
-        # for x, y in zip(rightx, righty):
-        #     color_warped = cv2.circle(color_warped, (x, y), 1, (0,255, 0), -1)
-        # imshow("points", color_warped )
-
-        ### vis draw curvature ###
-        # drawCurvature(color_warped, leftx, left_fit)
-        # drawCurvature(color_warped, rightx, right_fit)
-
-        ### vis fill poly ###
-        # coordinates = np.array(list(zip(leftx, lefty)))
-        # cv2.fillPoly(color_warped, [coordinates], (0, 255, 0))
-        # newwarp = cv2.warpPerspective(color_warp, Minv, (img_shape[1], img_shape[0]))
-        # imshow("fill_poly", color_warped)
-
-    except TypeError:
-        print("Unable to detect lanes")
-        return None
-
     return color_warped
 
 
@@ -678,12 +630,12 @@ def run(img_path):
     combinedOutput = combinedBinaryImage(SobelOutput, ColorOutput)
     sobel_warped, M, Minv = perspective_transform(SobelOutput, img)
     color_warped, M, Minv = perspective_transform(ColorOutput, img)
-    color_contour_warped = findContourForColor(color_warped)
+    color_warped = findContourForColor(color_warped)
     combined_warped, M, Minv = perspective_transform(combinedOutput, img)
 
     # imshow("color_warped", color_warped*255)
     sobel_hist = getHistogram(sobel_warped)
-    color_hist = getHistogram(color_contour_warped)
+    color_hist = getHistogram(color_warped)
     combined_hist = getHistogram(combined_warped)
     
     hist = combined_hist.copy()
@@ -718,35 +670,7 @@ def run(img_path):
     #     imshow("vis_combined", vis_combined)
 
     warped_fit = line_fit(combined_warped, hist, color_warped, img)
-
-    # color_warped = cv2.cvtColor(binary_warped, cv2.COLOR_GRAY2BGR)
-    # leftx = ret['nonzerox'][ret['left_lane_inds']]
-    # rightx = ret['nonzerox'][ret['right_lane_inds']]
-
-    ### vis curvature ###
-    # vis_bird_fit = bird_fit(binary_warped, ret)
-    # imshow("bird_fit", result)
-    # img_with_curve = final_viz(img, ret['left_fit'], ret['right_fit'], Minv)
-    # imshow("final_viz", img_with_curve)
-
-    ### vis curvature ###
-    # left_curve = drawCurvature(color_warped, leftx, ret['left_fit'])
-    # right_curve = drawCurvature(color_warped, rightx, ret['right_fit'])
-    # left_curve = cv2.warpPerspective(
-    #     left_curve, Minv, (img.shape[1], img.shape[0]))
-    # right_curve = cv2.warpPerspective(
-    #     right_curve, Minv, (img.shape[1], img.shape[0]))
-    # img_with_curve = cv2.addWeighted(img, 1, left_curve + right_curve, 0.5, 0)
-
-    ### vis filled lane ###
-    # left_pts = getCurvaturePts(leftx, ret['left_fit'])
-    # right_pts = getCurvaturePts(rightx, ret['right_fit'])
-    # pts = np.vstack([left_pts, right_pts])
-    # canvas = np.zeros_like(img)
-    # cv2.fillPoly(canvas, np.int_([pts]), (0, 255, 0))
-    # canvas = cv2.warpPerspective(canvas, Minv, (img.shape[1], img.shape[0]))
-    # img_with_curve = cv2.addWeighted(img_with_curve, 1, canvas, 0.3, 0)
-
+    
     ### vis all ###
     SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
     ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
