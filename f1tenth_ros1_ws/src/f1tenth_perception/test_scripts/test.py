@@ -28,7 +28,7 @@ parser.add_argument('--dilate_size', type=int, default=5)
 parser.add_argument('--hist_y_begin', type=int, default=30)
 parser.add_argument('--perspective_pts', '-p',
                     type=str, default='218,467,348,0')
-# parser.add_argument('--algo', type=str, required=True)
+parser.add_argument('--base_algo', type=str, required=True)
 
 args = parser.parse_args()
 
@@ -638,7 +638,16 @@ def run(img_path):
     color_hist = getHistogram(color_warped)
     combined_hist = getHistogram(combined_warped)
     
-    hist = combined_hist.copy()
+    if args.base_algo == "color":
+        hist = color_hist.copy()
+        warped = color_warped.copy()
+    elif args.base_algo == "grad":
+        hist = sobel_hist.copy()
+        warped = sobel_warped.copy()
+    elif args.base_algo == "combine":
+        hist = combined_hist.copy()
+        warped = combined_warped.copy()
+        
     plotHist(hist, "target")
     vis_hist = fixedAspectRatioResize(
         cv2.imread(os.path.join(TMP_DIR, 'hist_target.png')), desired_width=color_warped.shape[1])
@@ -669,12 +678,12 @@ def run(img_path):
     #     imshow("vis_color", vis_color)
     #     imshow("vis_combined", vis_combined)
 
-    warped_fit = line_fit(combined_warped, hist, color_warped, img)
+    warped_fit = line_fit(warped, hist, color_warped, img)
     
     ### vis all ###
     SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
     ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
-    concat = cv2.vconcat([img, SobelOutput, ColorOutput, warped_fit])
+    concat = cv2.vconcat([img, SobelOutput, ColorOutput, vis_hist, warped_fit])
     if args.vis_mode:
         imshow("concat", concat)
     if args.vis_output:
