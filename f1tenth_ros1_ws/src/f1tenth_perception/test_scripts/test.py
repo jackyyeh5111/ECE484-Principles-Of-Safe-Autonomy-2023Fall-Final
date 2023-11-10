@@ -444,10 +444,10 @@ def line_fit(binary_warped, histogram, color_warped, img):
     # diff_xdistance_thres = 90
     # window_height = 20
 
-    # gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    # gray_warped, M, Minv = perspective_transform(gray_img, img)
-    # blurred_img = cv2.GaussianBlur(gray_warped, (5, 5), 0)
-    # sobel_x = cv2.Sobel(blurred_img, cv2.CV_64F, 1, 0, ksize=3)
+    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray_warped, M, Minv = perspective_transform(gray_img, img)
+    blurred_img = cv2.GaussianBlur(gray_warped, (5, 5), 0)
+    sobel_x = cv2.Sobel(blurred_img, cv2.CV_64F, 1, 0, ksize=3)
 
     # def getSidePoints(y):
     #     max_num_pixel = -1
@@ -546,10 +546,28 @@ def line_fit(binary_warped, histogram, color_warped, img):
     # Step through the windows one by one
     color_warped = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
     color_warped[color_warped > 0] = 255
+    
+    def correct(currentx, start_y, end_y, func):
+        y = start_y
+        
+        grads = sobel_x.copy()
+        grads[(binary_warped == 0)] = 0
+        grads = grads[y, currentx-margin:currentx+margin]
+        
+        idx = func(grads)
+        return idx + currentx - margin
+        
     for i in range(nwindows):
         win_top = binary_warped.shape[0] - (i + 1) * window_height
         win_bottom = win_top + window_height
-
+        
+        try:
+            leftx_current = correct(leftx_current, win_top, win_bottom, np.argmax)
+            rightx_current = correct(rightx_current, win_top, win_bottom, np.argmin)
+        except:
+            print ("Lane reaches the boundary.")
+            break
+        
         # Identify window boundaries in x and y (and right and left)
         # left
         left_lt = [leftx_current - margin, win_top]
@@ -563,7 +581,7 @@ def line_fit(binary_warped, histogram, color_warped, img):
             color_warped, left_lt, left_rb, (0, 255, 0))
         color_warped = cv2.rectangle(
             color_warped, right_lt, right_rb, (0, 255, 0))
-        # imshow("color_warped", color_warped)
+        imshow("color_warped", color_warped)
 
         ####
         # Identify the nonzero pixels in x and y within the window
