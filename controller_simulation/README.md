@@ -6,12 +6,12 @@ After installing the F1tenth simulator (https://gitlab.engr.illinois.edu/GolfCar
 2. Add "keyboard_teleop.py", "set_state.py", "way_pts.py" to the following repository: f1tenth_simulator/f1tenth-sim/scripts/
 
 #### Launch environment
-$ source devel/setup.bash
-$ roslaunch f1tenth-sim racecar.launch world_name:=new
+$ source devel/setup.bash 
+$ roslaunch f1tenth-sim racecar.launch world_name:=new 
 
 #### Run controller
-$ source devel/setup.bash
-$ rosrun f1tenth-sim keyboard_teleop.py
+$ source devel/setup.bash 
+$ rosrun f1tenth-sim keyboard_teleop.py 
 
 #### Reset racecar state
-$ rosrun f1tenth-sim set_state.py
+$ rosrun f1tenth-sim set_state.py 
