@@ -23,7 +23,8 @@ parser.add_argument('--specified_name', '-s', type=str)
 parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
 parser.add_argument('--sat_thresh', type=str, default='50,255')
 # parser.add_argument('--val_thresh', type=str, default='80,255')
-parser.add_argument('--val_thres_offset', type=int, default=20)
+# parser.add_argument('--val_thres_offset', type=int, default=20)
+parser.add_argument('--val_thres_percentile', type=int, default=65)
 parser.add_argument('--hue_thresh', type=str, default='10,40')
 parser.add_argument('--dilate_size', type=int, default=5)
 parser.add_argument('--hist_y_begin', type=int, default=30)
@@ -222,7 +223,7 @@ def gradient_thresh(img, thresh_min=grad_thres_min, thresh_max=grad_thres_max):
     return binary_output
 
 
-def color_thresh(img, val_mean):
+def color_thresh(img, val_thres):
     """
     Convert RGB to HSL and threshold to binary image using S channel
     """
@@ -242,10 +243,22 @@ def color_thresh(img, val_mean):
     sat_cond = ((sat_thres_min <= s) & (s <= sat_thres_max))
     
     # Use gray image instead of L channel of HLS (their images are different!)
-    val_cond = (val_mean + args.val_thres_offset <= gray_img)
+    val_cond = (val_thres <= gray_img)
     hue_cond = (hue_thres_min <= h) & (h <= hue_thres_max)
+    
     binary_output[val_cond & sat_cond & hue_cond] = 1
 
+    ### visualization three channels result ###
+    # vis = np.zeros_like(l)
+    # vis[sat_cond] = 255
+    # imshow("sat", vis)
+    # vis = np.zeros_like(l)
+    # vis[val_cond] = 255
+    # imshow("val", vis)
+    # vis = np.zeros_like(l)
+    # vis[hue_cond] = 255
+    # imshow("hue", vis)
+    
     ### visualization for hue testing ###
     if args.vis_hue:
         OUTPUT_DIR = "./hue-test"
@@ -440,6 +453,9 @@ def line_fit(binary_warped, histogram, color_warped, img):
             best_left_base_x = leftbase
             best_right_base_x = rightbase
 
+    if best_left_base_x == -1:
+        return False, cv2.cvtColor(binary_warped, cv2.COLOR_GRAY2BGR)
+    
     # sliding window
     # height, width = binary_warped.shape
     # sliding_offset = 5
@@ -617,7 +633,7 @@ def line_fit(binary_warped, histogram, color_warped, img):
     # cv2.imwrite(os.path.join(TMP_DIR, 'warped.png'), color_warped)
     # imshow("color_warped", color_warped)
 
-    return color_warped
+    return True, color_warped
 
 
 def findContourForColor(color_warped):
@@ -649,10 +665,16 @@ def run(img_path):
     img = cv2.imread(img_path)
     gray_img = cv2.imread(img_path, 0)
     gray_img_warped, M, Minv = perspective_transform(gray_img, img)
-    val_mean = np.mean(gray_img_warped)
+    
+    # val_mean = np.mean(gray_img_warped)
+    val_thres = np.percentile(gray_img_warped, args.val_thres_percentile)
+    print ("mean:", val_thres)
+    if args.vis_mode:
+        imshow("gray_img_warped", gray_img_warped)
+    
     
     SobelOutput = gradient_thresh(img)
-    ColorOutput = color_thresh(img, val_mean)
+    ColorOutput = color_thresh(img, val_thres)
     combinedOutput = combinedBinaryImage(SobelOutput, ColorOutput)
     sobel_warped, M, Minv = perspective_transform(SobelOutput, img)
     color_warped, M, Minv = perspective_transform(ColorOutput, img)
@@ -705,7 +727,7 @@ def run(img_path):
     #     imshow("vis_color", vis_color)
     #     imshow("vis_combined", vis_combined)
 
-    warped_fit = line_fit(warped, hist, color_warped, img)
+    is_success, warped_fit = line_fit(warped, hist, color_warped, img)
     
     ### vis all ###
     SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
