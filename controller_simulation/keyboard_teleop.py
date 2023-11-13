@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
+import sys
+import tty
 import rospy
+import signal
+import select
+import termios
 import numpy as np
-from std_msgs.msg import Float64MultiArray
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
+from nav_msgs.msg import Odometry
 
 ###################################################################################################
 
@@ -18,15 +23,29 @@ class F1tenth_controller(object):
         self.wheelbase = 0.325
         self.read_waypoints()
 
-        self.car_state_sub = rospy.Subscriber('/car_state', Float64MultiArray, self.carstate_callback)
+        self.car_state_sub = rospy.Subscriber('/car_1/ground_truth', Odometry, self.carstate_callback)
         self.car_x   = 0.0
         self.car_y   = 0.0
         self.car_yaw = 0.0
+    
+    def quaternion_to_euler(self, x, y, z, w):
+        t0 = +2.0 * (w * x + y * z)
+        t1 = +1.0 - 2.0 * (x * x + y * y)
+        roll = np.arctan2(t0, t1)
+        t2 = +2.0 * (w * y - z * x)
+        t2 = +1.0 if t2 > +1.0 else t2
+        t2 = -1.0 if t2 < -1.0 else t2
+        pitch = np.arcsin(t2)
+        t3 = +2.0 * (w * z + x * y)
+        t4 = +1.0 - 2.0 * (y * y + z * z)
+        yaw = np.arctan2(t3, t4)
+        return [roll, pitch, yaw]
 
     def carstate_callback(self, data):
-        self.car_x = data.data[0]
-        self.car_y = data.data[1]
-        self.car_yaw = np.radians(data.data[3])
+        self.car_x = data.pose.pose.position.x
+        self.car_y = data.pose.pose.position.y
+        _, _, self.car_yaw = self.quaternion_to_euler(data.pose.pose.orientation.x, data.pose.pose.orientation.y, 
+                                                      data.pose.pose.orientation.z, data.pose.pose.orientation.w)
 
     def read_waypoints(self):
         ## sample a waypoint every "wp_dist" meters
@@ -76,14 +95,14 @@ class F1tenth_controller(object):
             ## lateral control using pure pursuit
             self.goal_x = self.targ_pts[-1][0]
             self.goal_y = self.targ_pts[-1][1]
-            
+
             ## true look-ahead distance between a waypoint and current position
             ld = np.hypot(self.goal_x, self.goal_y)
             
             # find target steering angle (tuning this part as needed)
-            k = 0.6  # 0.8
-            i = 4.0  # 2.0
-            angle_limit = 80  # 60
+            k = 0.6
+            i = 4.0
+            angle_limit = 80
             alpha = np.arctan2(self.goal_y, self.goal_x)
             angle = np.arctan2((k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * i
             target_steering = round(np.clip(angle, -np.radians(angle_limit), np.radians(angle_limit)), 3)
@@ -117,23 +136,88 @@ class F1tenth_controller(object):
             print("Crosstrack Error: " + str(ct_error))
             print("Steering angle: " + str(target_steering_deg) + " degrees\n")
             print("Velocity: " + str(target_velocity))
-            
+
             self.drive_msg.header.stamp = rospy.get_rostime()
             self.drive_msg.drive.steering_angle = target_steering
             self.drive_msg.drive.speed = target_velocity
             self.ctrl_pub.publish(self.drive_msg)
 
+            command = AckermannDrive()
+            command.speed = target_velocity
+            command.steering_angle = target_steering
+            command_pub.publish(command)
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
             self.rate.sleep()
 
 ###################################################################################################
 
 def control_main():
-    rospy.init_node('vicon_pp_node', anonymous=True)
     ctrl = F1tenth_controller()
     try:
-        ctrl.lateral_controller()
+        ctrl.controller()
     except rospy.ROSInterruptException:
         pass
 
 if __name__== '__main__':
+    settings    = termios.tcgetattr(sys.stdin)
+    command_pub = rospy.Publisher('/car_1/multiplexer/command', AckermannDrive, queue_size = 1)
+    rospy.init_node('keyboard_teleop', anonymous = True)
+
+    ################################################################################
+    ## Uncomment this block for self-driving
+    def signal_handler(signal, frame):
+        command = AckermannDrive()
+        command.speed = 0.0
+        command.steering_angle = 0.0
+        command_pub.publish(command)
+        termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+        print('\nCar stops!')
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
     control_main()
+    ################################################################################
+
+    ################################################################################
+    ## Uncomment this block for manual control
+    # keyBindings = {'w':(1.0,  0.0),  # move forward
+    #                'd':(1.0, -1.0),  # move foward and right
+    #                'a':(1.0 , 1.0),  # move forward and left
+    #                's':(-1.0, 0.0),  # move reverse
+    #                'q':(0.0,  0.0)}  # all stop
+
+    # def getKey():
+    #     tty.setraw(sys.stdin.fileno())
+    #     select.select([sys.stdin], [], [], 0)
+    #     key = sys.stdin.read(1)
+    #     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+    #     return key
+
+    # speed = 0.0
+    # angle = 0.0
+    # speed_limit = 0.250
+    # angle_limit = 0.325
+    # try:
+    #     while True:
+    #         key = getKey()
+    #         if key in keyBindings.keys():
+    #            speed = keyBindings[key][0]
+    #            angle = keyBindings[key][1]
+    #         else:
+    #            speed = 0.0
+    #            angle = 0.0
+    #            if (key == '\x03'):
+    #               break
+    #         command                = AckermannDrive()
+    #         command.speed          = speed * speed_limit
+    #         command.steering_angle = angle * angle_limit
+    #         command_pub.publish(command)
+    # except:
+    #     print('raise exception: key binding error')
+    # finally:
+    #     command = AckermannDrive();
+    #     command.speed = speed * speed_limit
+    #     command.steering_angle = angle * angle_limit
+    #     command_pub.publish(command)
+    #     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
+    ################################################################################
