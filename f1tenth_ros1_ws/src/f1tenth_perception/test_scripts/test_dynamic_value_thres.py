@@ -416,7 +416,7 @@ def drawCurvature(color_warped, x_arr, coeffs, thickness=10):
     return curve
 
 
-def line_fit(binary_warped, histogram, color_warped, img):
+def line_fit(binary_warped, histogram, img):
     """
     Find and fit lane lines
     """
@@ -454,7 +454,7 @@ def line_fit(binary_warped, histogram, color_warped, img):
             best_right_base_x = rightbase
 
     if best_left_base_x == -1:
-        return False, cv2.cvtColor(binary_warped, cv2.COLOR_GRAY2BGR)
+        return None
     
     # sliding window
     # height, width = binary_warped.shape
@@ -518,16 +518,9 @@ def line_fit(binary_warped, histogram, color_warped, img):
 
     #     return is_success, base_leftx, base_rightx
 
-    # start_y = height - 5
-    # is_success, leftx_base, rightx_base = getSidePoints(start_y)
-    # if not is_success:
-    #     assert ("Cannot get base points")
-
-    # Choose the number of sliding windows
-    nwindows = 15
-    # Set height of windows
-    # window_height = int(binary_warped.shape[0]/nwindows)
     window_height = 20
+    nwindows = 15
+    # nwindows = height // window_height
 
     # visualization base
 
@@ -568,7 +561,7 @@ def line_fit(binary_warped, histogram, color_warped, img):
     color_warped[color_warped > 0] = 255
     
     def correct(currentx, start_y, end_y, func):
-        y = start_y
+        y = (start_y + end_y) // 2
         
         grads = sobel_x.copy()
         grads[(binary_warped == 0)] = 0
@@ -577,6 +570,7 @@ def line_fit(binary_warped, histogram, color_warped, img):
         idx = func(grads)
         return idx + currentx - margin
         
+    lane_pts = []
     for i in range(nwindows):
         win_top = binary_warped.shape[0] - (i + 1) * window_height
         win_bottom = win_top + window_height
@@ -587,6 +581,8 @@ def line_fit(binary_warped, histogram, color_warped, img):
         except:
             print ("Lane reaches the boundary.")
             break
+        lane_pt = ((leftx_current + rightx_current) // 2, (win_top + win_bottom) // 2)
+        lane_pts.append(lane_pt)
         
         # Identify window boundaries in x and y (and right and left)
         # left
@@ -603,37 +599,33 @@ def line_fit(binary_warped, histogram, color_warped, img):
             color_warped, right_lt, right_rb, (0, 255, 0))
         # imshow("color_warped", color_warped)
 
-        ####
-        # Identify the nonzero pixels in x and y within the window
-        left_window_inds = np.where((nonzerox > leftx_current - margin) &
-                                    (nonzerox < leftx_current + margin) &
-                                    (nonzeroy > win_top) &
-                                    (nonzeroy < win_bottom))
-        right_window_inds = np.where((nonzerox > rightx_current - margin) &
-                                     (nonzerox < rightx_current + margin) &
-                                     (nonzeroy > win_top) &
-                                     (nonzeroy < win_bottom))
-        ####
-        # Append these indices to the lists
-        left_lane_inds.append(left_window_inds[0])
-        right_lane_inds.append(right_window_inds[0])
-
-        ####
-        # If you found > minpix pixels, recenter next window on their mean position
-        left_nonzerox = nonzerox[left_window_inds]
-        if len(left_nonzerox) > minpix:
-            leftx_current = int(np.mean(left_nonzerox))
-
-        right_nonzerox = nonzerox[right_window_inds]
-        if len(right_nonzerox) > minpix:
-            rightx_current = int(np.mean(right_nonzerox))
-
     ### vis color_warped ###
     putText(color_warped, "warp & lanefit")
-    # cv2.imwrite(os.path.join(TMP_DIR, 'warped.png'), color_warped)
-    # imshow("color_warped", color_warped)
+    
+    lanex = [pt[0] for pt in lane_pts]
+    laney = [pt[1] for pt in lane_pts]
+    try:
+        lane_fit = np.polyfit(laney, lanex, deg=2)
+        
+        ### vis lane points ###
+        for x, y in zip(lanex, laney):
+            color_warped = cv2.circle(color_warped, (x, y), 1, (0,255, 0), -1)
+            
+        ### vis points nonzero ###
+        # for x, y in zip(rightx, righty):
+        #     color_warped = cv2.circle(color_warped, (x, y), 1, (0,255, 0), -1)
+        # imshow("points", color_warped )
 
-    return True, color_warped
+    except TypeError:
+        print("Unable to detect lanes")
+        return None
+
+    ret = {}
+    ret['vis_warped'] = color_warped
+    ret['lane_fit'] = lane_fit
+    ret['lanex'] = lanex
+    ret['laney'] = laney
+    return ret
 
 
 def findContourForColor(color_warped):
@@ -727,12 +719,15 @@ def run(img_path):
     #     imshow("vis_color", vis_color)
     #     imshow("vis_combined", vis_combined)
 
-    is_success, warped_fit = line_fit(warped, hist, color_warped, img)
+    res = line_fit(warped, hist, img)
+    if res is None:
+        print ("Fail to fit line")
+        exit(1)
     
     ### vis all ###
     SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
     ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
-    concat = cv2.vconcat([img, SobelOutput, ColorOutput, vis_hist, warped_fit])
+    concat = cv2.vconcat([img, SobelOutput, ColorOutput, vis_hist, res['vis_warped']])
     if args.vis_mode:
         imshow("concat", concat)
     if args.vis_output:
