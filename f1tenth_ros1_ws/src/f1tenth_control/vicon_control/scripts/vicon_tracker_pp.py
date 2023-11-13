@@ -1,170 +1,139 @@
 #!/usr/bin/env python3
-
-#================================================================
-# File name: gem_gnss_pp_tracker_pid.py                                                                  
-# Description: gnss waypoints tracker using pid and pure pursuit                                                                
-# Author: Hang Cui
-# Email: hangcui3@illinois.edu                                                                     
-# Date created: 08/02/2021                                                                
-# Date last modified: 08/15/2022                                                          
-# Version: 1.0                                                                   
-# Usage: rosrun gem_gnss gem_gnss_pp_tracker.py                                                                      
-# Python version: 3.8                                                             
-#================================================================
-
-from __future__ import print_function
-
-# Python Headers
-import os 
-import csv
-import math
-import numpy as np
-from numpy import linalg as la
-import scipy.signal as signal
-
-# ROS Headers
 import rospy
-
-# GEM Sensor Headers
-from std_msgs.msg import String, Bool, Float32, Float64, Float64MultiArray
+import numpy as np
+from std_msgs.msg import Float64MultiArray
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
 
+###################################################################################################
 
-class PurePursuit(object):
-    
+from way_pts import way_pts
+class F1tenth_controller(object):
     def __init__(self):
-        
-        # 0.5 - 0.1 - 0.41
-
-        self.rate = rospy.Rate(30)
-
-        self.look_ahead = 0.3 # 4
-        self.wheelbase  = 0.325 # meters
-        self.offset     = 0.017 # meters        
-        
-        self.ctrl_pub  = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
+        self.rate = rospy.Rate(30)  # Hz
+        self.ctrl_pub = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
         self.drive_msg = AckermannDriveStamped()
         self.drive_msg.header.frame_id = "f1tenth_control"
-        self.drive_msg.drive.speed     = 1.0 # m/s, reference speed
 
-        self.vicon_sub = rospy.Subscriber('/car_state', Float64MultiArray, self.carstate_callback)
-        self.x   = 0.0
-        self.y   = 0.0
-        self.yaw = 0.0
-        
-        # read waypoints into the system 
-        self.goal = 0            
-        self.read_waypoints() 
-        
-    def carstate_callback(self, carstate_msg):
-        self.x   = carstate_msg.data[0] # meters
-        self.y   = carstate_msg.data[1] # meters
-        self.yaw = carstate_msg.data[3] # degrees
+        self.look_ahead = 1.0
+        self.wheelbase = 0.325
+        self.read_waypoints()
+
+        self.car_state_sub = rospy.Subscriber('/car_state', Float64MultiArray, self.carstate_callback)
+        self.car_x   = 0.0
+        self.car_y   = 0.0
+        self.car_yaw = 0.0
+
+    def carstate_callback(self, data):
+        self.car_x = data.data[0]
+        self.car_y = data.data[1]
+        self.car_yaw = np.radians(data.data[3])
 
     def read_waypoints(self):
-        # read recorded GPS lat, lon, heading
-        dirname  = os.path.dirname(__file__)
-        filename = os.path.join(dirname, '../waypoints/xyhead_demo_pp.csv')
-        with open(filename) as f:
-            path_points = [tuple(line) for line in csv.reader(f)]
-        # x towards East and y towards North
-        self.path_points_x_record   = [float(point[0]) for point in path_points] # x
-        self.path_points_y_record   = [float(point[1]) for point in path_points] # y
-        self.path_points_yaw_record = [float(point[2]) for point in path_points] # yaw
-        self.wp_size                = len(self.path_points_x_record)
-        self.dist_arr               = np.zeros(self.wp_size)
+        ## sample a waypoint every "wp_dist" meters
+        wp_dist = 0.2
+        waypoints_x, waypoints_y, waypoints_yaw, dist_list = [], [], [], []
+        for i in range(len(way_pts)-1):
+            dist_list.append(np.hypot(way_pts[i+1][0] - way_pts[i][0], way_pts[i+1][1] - way_pts[i][1]))
+        cumsum_dist = np.cumsum(dist_list)
+        count = 0
+        for i in range(len(cumsum_dist)):
+            if cumsum_dist[i] >= count * wp_dist:
+                waypoints_x.append(way_pts[i][0])
+                waypoints_y.append(way_pts[i][1])
+                waypoints_yaw.append(way_pts[i][2])
+                count = count + 1
+        self.wp_x = np.array(waypoints_x)
+        self.wp_y = np.array(waypoints_y)
+        self.wp_yaw = np.array(waypoints_yaw)  # degree
+    
+    def get_targ_points(self):
+        ## coordinate transformation
+        curr_x, curr_y, curr_yaw = self.car_x, self.car_y, self.car_yaw
+        rot_mtx = np.array([[np.cos(-curr_yaw), -np.sin(-curr_yaw)], [np.sin(-curr_yaw), np.cos(-curr_yaw)]])
+        pts_arr = np.dot(rot_mtx, np.array([self.wp_x, self.wp_y]) - np.array([[curr_x], [curr_y]]))
+        ## find the distance of each waypoint from current position
+        dist_list, angle_list = [], []
+        for i in range(pts_arr.shape[1]):
+            dist_list.append(np.hypot(pts_arr[0,i], pts_arr[1,i]))
+            angle_list.append(np.arctan2(pts_arr[1,i], pts_arr[0,i]))
+        dist_arr = np.array(dist_list)
+        angle_arr = np.degrees(np.array(angle_list))
+        ## find those points which are less than lookahead distance (behind and ahead the vehicle)
+        targ_idx = np.where((abs(angle_arr) < 90) & (dist_arr < self.look_ahead))[0]
+        self.targ_pts = list(pts_arr[:,targ_idx].transpose())
 
-    def get_f1tenth_state(self):
-
-        # heading to yaw (degrees to radians)
-        # heading is calculated from two GNSS antennas
-        curr_yaw = np.radians(self.yaw)
-
-        # reference point is located at the center of rear axle
-        curr_x = self.x - self.offset * np.cos(curr_yaw)
-        curr_y = self.y - self.offset * np.sin(curr_yaw)
-
-        return round(curr_x, 3), round(curr_y, 3), round(curr_yaw, 4)
-
-    # find the angle bewtween two vectors    
-    def find_angle(self, v1, v2):
-        cosang = np.dot(v1, v2)
-        sinang = la.norm(np.cross(v1, v2))
-        # [-pi, pi]
-        return np.arctan2(sinang, cosang)
-
-    # computes the Euclidean distance between two 2D points
-    def dist(self, p1, p2):
-        return round(np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2), 3)
-
-    def start_pp(self):
-        
+    def controller(self):
         while not rospy.is_shutdown():
+            ## find the goal point which is the last in the set of points less than lookahead distance
+            self.get_targ_points()
+            # for targ_pt in self.targ_pts[::-1]:
+            #     angle = np.arctan2(targ_pt[1], targ_pt[0])
+            #     ## find correct look-ahead point by using heading information
+            #     if abs(angle) < np.pi/2:
+            #         self.goal_x, self.goal_y = targ_pt[0], targ_pt[1]
+            #         break
 
-            self.path_points_x = np.array(self.path_points_x_record)
-            self.path_points_y = np.array(self.path_points_y_record)
+            ## lateral control using pure pursuit
+            self.goal_x = self.targ_pts[-1][0]
+            self.goal_y = self.targ_pts[-1][1]
+            
+            ## true look-ahead distance between a waypoint and current position
+            ld = np.hypot(self.goal_x, self.goal_y)
+            
+            # find target steering angle (tuning this part as needed)
+            k = 0.6  # 0.8
+            i = 4.0  # 2.0
+            angle_limit = 80  # 60
+            alpha = np.arctan2(self.goal_y, self.goal_x)
+            angle = np.arctan2((k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * i
+            target_steering = round(np.clip(angle, -np.radians(angle_limit), np.radians(angle_limit)), 3)
+            target_steering_deg = round(np.degrees(target_steering))
+            
+            ## compute track curvature for longititudal control
+            if len(self.targ_pts) >= 3:
+                dx0 = self.targ_pts[-2][0] - self.targ_pts[-3][0]
+                dy0 = self.targ_pts[-2][1] - self.targ_pts[-3][1]
+                dx1 = self.targ_pts[-1][0] - self.targ_pts[-2][0]
+                dy1 = self.targ_pts[-1][1] - self.targ_pts[-2][1]
+                ddx, ddy = dx1 - dx0, dy1 - dy0
+                curvature = np.inf if dx1 == 0 and dy1 == 0 else abs((dx1*ddy - dy1*ddx) / (dx1**2 + dy1**2) ** (3/2))
+            else:
+                curvature = np.inf
 
-            curr_x, curr_y, curr_yaw = self.get_f1tenth_state()
-
-            # finding the distance of each way point from the current position
-            for i in range(len(self.path_points_x)):
-                self.dist_arr[i] = self.dist((self.path_points_x[i], self.path_points_y[i]), (curr_x, curr_y))
-
-            # finding those points which are less than the look ahead distance (will be behind and ahead of the vehicle)
-            goal_arr = np.where( (self.dist_arr < self.look_ahead + 0.05) & (self.dist_arr > self.look_ahead - 0.05) )[0]
-
-            # finding the goal point which is the last in the set of points less than the lookahead distance
-            for idx in goal_arr:
-                v1 = [self.path_points_x[idx]-curr_x , self.path_points_y[idx]-curr_y]
-                v2 = [np.cos(curr_yaw), np.sin(curr_yaw)]
-                temp_angle = self.find_angle(v1,v2)
-                # find correct look-ahead point by using heading information
-                if abs(temp_angle) < np.pi/2:
-                    self.goal = idx
-                    break
-
-            # finding the distance between the goal point and the vehicle
-            # true look-ahead distance between a waypoint and current position
-            L = self.dist_arr[self.goal]
-
-            # find the curvature and the angle 
-            alpha = np.radians(self.path_points_yaw_record[self.goal]) - curr_yaw
-
-            # ----------------- tuning this part as needed -----------------
-            k       = 0.1
-            angle_i = math.atan((k * 2 * self.wheelbase * math.sin(alpha)) / L) 
-            angle   = angle_i*2
-            # ----------------- tuning this part as needed -----------------
-
-            f_delta = round(np.clip(angle, -0.3, 0.3), 3)
-
-            f_delta_deg = round(np.degrees(f_delta))
-
-            print("Current index: " + str(self.goal))
-            ct_error = round(np.sin(alpha) * L, 3)
+            ## adjust speed according to curvature and steering angle
+            curv_min = 0.0
+            curv_max = 0.4
+            vel_min = 0.6
+            vel_max = 1.0
+            curvature = min(curv_max, curvature)
+            curvature = max(curv_min, curvature)
+            target_velocity = vel_max - (vel_max - vel_min) * curvature / (curv_max - curv_min)
+            steering_limit = 60
+            if target_steering >= np.radians(steering_limit):
+                target_velocity = vel_min
+            
+            ct_error = round(np.sin(alpha) * ld, 3)
+            print("Lookahead distance: ", str(ld))
             print("Crosstrack Error: " + str(ct_error))
-            print("Front steering angle: " + str(f_delta_deg) + " degrees")
-            print("\n")
-
+            print("Steering angle: " + str(target_steering_deg) + " degrees\n")
+            print("Velocity: " + str(target_velocity))
+            
             self.drive_msg.header.stamp = rospy.get_rostime()
-            self.drive_msg.drive.steering_angle = f_delta
+            self.drive_msg.drive.steering_angle = target_steering
+            self.drive_msg.drive.speed = target_velocity
             self.ctrl_pub.publish(self.drive_msg)
-        
+
             self.rate.sleep()
 
+###################################################################################################
 
-def pure_pursuit():
-
+def control_main():
     rospy.init_node('vicon_pp_node', anonymous=True)
-    pp = PurePursuit()
-
+    ctrl = F1tenth_controller()
     try:
-        pp.start_pp()
+        ctrl.lateral_controller()
     except rospy.ROSInterruptException:
         pass
 
-
-if __name__ == '__main__':
-    pure_pursuit()
-
-
+if __name__== '__main__':
+    control_main()
