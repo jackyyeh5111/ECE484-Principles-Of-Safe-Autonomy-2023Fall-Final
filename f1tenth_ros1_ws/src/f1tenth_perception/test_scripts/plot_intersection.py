@@ -10,6 +10,7 @@ circle_eq = sp.Eq((x - 2)**2 + (y - 2)**2, 4)
 
 # Equation of the curve (replace this with your specific curve equation)
 curve_eq = sp.Eq(y, x**2)
+curve_eq = sp.Eq(y**(1/2), x)
 
 # Find the intersection points
 intersection_points = sp.solve((circle_eq, curve_eq), (x, y))

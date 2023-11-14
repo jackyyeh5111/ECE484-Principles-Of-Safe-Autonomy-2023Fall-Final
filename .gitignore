@@ -2,3 +2,5 @@
 f1tenth_ros1_ws/src/frames/
 f1tenth_ros1_ws/src/reference/
 lanenet
+vis_*
+*.bag
