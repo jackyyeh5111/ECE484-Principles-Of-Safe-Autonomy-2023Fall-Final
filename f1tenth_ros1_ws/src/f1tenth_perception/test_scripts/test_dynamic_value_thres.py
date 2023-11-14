@@ -7,6 +7,7 @@ import argparse
 import matplotlib.pyplot as plt
 import pathlib
 import os
+import sympy as sp
 
 # import sys
 # sys.path.insert(0, "../")
@@ -21,11 +22,11 @@ parser.add_argument('--vis_hue', action='store_true')
 parser.add_argument('--append_str', '-a', type=str, default='tmp')
 parser.add_argument('--specified_name', '-s', type=str)
 parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
-parser.add_argument('--sat_thresh', type=str, default='50,255')
+parser.add_argument('--sat_thresh', type=str, default='60,255')
 # parser.add_argument('--val_thresh', type=str, default='80,255')
 # parser.add_argument('--val_thres_offset', type=int, default=20)
 parser.add_argument('--val_thres_percentile', type=int, default=65)
-parser.add_argument('--hue_thresh', type=str, default='10,40')
+parser.add_argument('--hue_thresh', type=str, default='15,40')
 parser.add_argument('--dilate_size', type=int, default=5)
 parser.add_argument('--hist_y_begin', type=int, default=30)
 parser.add_argument('--perspective_pts', '-p',
@@ -57,6 +58,10 @@ src_leftx, src_rightx, laney, offsety = int(
 
 img_name = ""
 
+INCH2METER = 0.0254
+PIX2METER_X = 0.0009525 # meter
+PIX2METER_Y = 0.0018518 # meter
+DIST_CAM2FOV_INCH = 16 # inch
 
 def putText(img, text,
             font_scale=1,
@@ -719,15 +724,31 @@ def run(img_path):
     #     imshow("vis_color", vis_color)
     #     imshow("vis_combined", vis_combined)
 
-    res = line_fit(warped, hist, img)
-    if res is None:
+    ret = line_fit(warped, hist, img)
+    if ret is None:
         print ("Fail to fit line")
         exit(1)
+    
+    def get_waypoints(ret, width, height, look_ahead_dist = 1.0):
+        lanex = ret['lanex']
+        laney = ret['laney']
+        
+        # transform from image coord (x, y) to camera coord in meters
+        lanex = [(x - width // 2) * PIX2METER_X for x in lanex]
+        laney = [(height - y) * PIX2METER_Y + DIST_CAM2FOV_INCH * INCH2METER for y in laney]
+        # lane_fit = np.polyfit(laney, lanex, deg=2)
+        # for x, y in zip(lanex, laney):
+        #     print (x, y)
+        way_pts = [(x, y) for x, y in zip(lanex, laney)]
+        return way_pts
+        
+    height, width = img.shape[:2]
+    way_pts = get_waypoints(ret, width, height, look_ahead_dist = 1.0)
     
     ### vis all ###
     SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
     ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
-    concat = cv2.vconcat([img, SobelOutput, ColorOutput, vis_hist, res['vis_warped']])
+    concat = cv2.vconcat([img, SobelOutput, ColorOutput, vis_hist, ret['vis_warped']])
     if args.vis_mode:
         imshow("concat", concat)
     if args.vis_output:
