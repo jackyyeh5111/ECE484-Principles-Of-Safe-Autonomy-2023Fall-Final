@@ -48,7 +48,7 @@ src_leftx, src_rightx, laney, offsety = int(
 INCH2METER = 0.0254
 PIX2METER_X = 0.0009525 # meter
 PIX2METER_Y = 0.0018518 # meter
-DIST_CAM2FOV_INCH = 16 # inch
+DIST_CAM2FOV_INCH = 21 # inch
 
 def imshow(window_name, image):
     cv2.imshow(window_name, image)
@@ -253,11 +253,11 @@ class LaneDetector():
             lanex = [(x - width // 2) * PIX2METER_X for x in lanex]
             laney = [(height - y) * PIX2METER_Y + DIST_CAM2FOV_INCH * INCH2METER for y in laney]
             
+            # lanex, laney = laney, -lanex
             # lane_fit = np.polyfit(laney, lanex, deg=2)
             # for x, y in zip(lanex, laney):
             #     print (x, y)
-            
-            way_pts = [(x, y) for x, y in zip(lanex, laney)]
+            way_pts = [(y, -x) for x, y in zip(lanex, laney)]
             
             # only update way pts when succefully fit lines
             if len(way_pts) != 0:
