@@ -253,10 +253,12 @@ class LaneDetector():
             lanex = [(x - width // 2) * PIX2METER_X for x in lanex]
             laney = [(height - y) * PIX2METER_Y + DIST_CAM2FOV_INCH * INCH2METER for y in laney]
             
-            # lanex, laney = laney, -lanex
-            # lane_fit = np.polyfit(laney, lanex, deg=2)
-            # for x, y in zip(lanex, laney):
-            #     print (x, y)
+            print ('\n--------- waypoints ---------')
+            for i, (x, y) in enumerate(zip(lanex, laney)):
+                print ('{} => Jacky coord: ({:.2f}, {:.2f}), Ricky coord: ({:.2f}, {:.2f})'
+                       .format(i+1, x, y, y, -x))
+            
+            # change to Ricky's coordinate    
             way_pts = [(y, -x) for x, y in zip(lanex, laney)]
             
             # only update way pts when succefully fit lines
@@ -278,6 +280,8 @@ class LaneDetector():
         # line fit
         hist = np.sum(color_warped[-args.hist_y_begin:, :], axis=0)
         ret = line_fit(contour_warped, hist, gray_img_warped)
+        if ret is None:
+            return
             
         # get get_waypoints
         height, width = img.shape[:2]

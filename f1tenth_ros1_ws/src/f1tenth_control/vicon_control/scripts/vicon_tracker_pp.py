@@ -126,7 +126,8 @@ class F1tenth_controller(object):
         ct_error = round(np.sin(alpha) * ld, 3)
         print("Lookahead distance: ", str(ld))
         print("Crosstrack Error: " + str(ct_error))
-        print("Steering angle: " + str(target_steering_deg) + " degrees\n")
+        print("Steering angle: {} degrees | larger than limit: {}".format(target_steering_deg, target_steering >= np.radians(steering_limit)))
+        print("curvature: " + str(curvature))
         print("Velocity: " + str(target_velocity))
         
         self.drive_msg.header.stamp = rospy.get_rostime()
