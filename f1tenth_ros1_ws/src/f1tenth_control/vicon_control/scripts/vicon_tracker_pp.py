@@ -8,7 +8,22 @@ from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
 
 from way_pts import way_pts
 class F1tenth_controller(object):
-    def __init__(self):
+    def __init__(self, 
+                 steering_k = 0.6,
+                 steering_i = 4.0,
+                 angle_limit = 80,
+                 curv_min = 0.0,
+                 curv_max = 0.4,
+                 vel_min = 0.6,
+                 vel_max = 1.0,):
+        self.steering_k = steering_k
+        self.steering_i = steering_i
+        self.angle_limit = angle_limit
+        self.curv_min = curv_min
+        self.curv_max = curv_max
+        self.vel_min = vel_min
+        self.vel_max = vel_max
+        
         self.rate = rospy.Rate(30)  # Hz
         self.ctrl_pub = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
         self.drive_msg = AckermannDriveStamped()
@@ -62,67 +77,66 @@ class F1tenth_controller(object):
         targ_idx = np.where((abs(angle_arr) < 90) & (dist_arr < self.look_ahead))[0]
         self.targ_pts = list(pts_arr[:,targ_idx].transpose())
 
+    def run(self, way_pts=None):
+        ## find the goal point which is the last in the set of points less than lookahead distance
+        if way_pts is None: # way_pts is provided by the perload file
+            self.get_targ_points()
+        else:
+            self.targ_pts = way_pts
+            
+        # for targ_pt in self.targ_pts[::-1]:
+        #     angle = np.arctan2(targ_pt[1], targ_pt[0])
+        #     ## find correct look-ahead point by using heading information
+        #     if abs(angle) < np.pi/2:
+        #         self.goal_x, self.goal_y = targ_pt[0], targ_pt[1]
+        #         break
+
+        ## lateral control using pure pursuit
+        self.goal_x = self.targ_pts[-1][0]
+        self.goal_y = self.targ_pts[-1][1]
+        
+        ## true look-ahead distance between a waypoint and current position
+        ld = np.hypot(self.goal_x, self.goal_y)
+        
+        # find target steering angle (tuning this part as needed)
+        alpha = np.arctan2(self.goal_y, self.goal_x)
+        angle = np.arctan2((self.steering_k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
+        target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
+        target_steering_deg = round(np.degrees(target_steering))
+        
+        ## compute track curvature for longititudal control
+        if len(self.targ_pts) >= 3:
+            dx0 = self.targ_pts[-2][0] - self.targ_pts[-3][0]
+            dy0 = self.targ_pts[-2][1] - self.targ_pts[-3][1]
+            dx1 = self.targ_pts[-1][0] - self.targ_pts[-2][0]
+            dy1 = self.targ_pts[-1][1] - self.targ_pts[-2][1]
+            ddx, ddy = dx1 - dx0, dy1 - dy0
+            curvature = np.inf if dx1 == 0 and dy1 == 0 else abs((dx1*ddy - dy1*ddx) / (dx1**2 + dy1**2) ** (3/2))
+        else:
+            curvature = np.inf
+
+        ## adjust speed according to curvature and steering angle
+        curvature = min(self.curv_max, curvature)
+        curvature = max(self.curv_min, curvature)
+        target_velocity = self.vel_max - (self.vel_max - self.vel_min) * curvature / (self.curv_max - self.curv_min)
+        steering_limit = 60
+        if target_steering >= np.radians(steering_limit):
+            target_velocity = self.vel_min
+        
+        ct_error = round(np.sin(alpha) * ld, 3)
+        print("Lookahead distance: ", str(ld))
+        print("Crosstrack Error: " + str(ct_error))
+        print("Steering angle: " + str(target_steering_deg) + " degrees\n")
+        print("Velocity: " + str(target_velocity))
+        
+        self.drive_msg.header.stamp = rospy.get_rostime()
+        self.drive_msg.drive.steering_angle = target_steering
+        self.drive_msg.drive.speed = target_velocity
+        self.ctrl_pub.publish(self.drive_msg)
+        
     def controller(self):
         while not rospy.is_shutdown():
-            ## find the goal point which is the last in the set of points less than lookahead distance
-            self.get_targ_points()
-            # for targ_pt in self.targ_pts[::-1]:
-            #     angle = np.arctan2(targ_pt[1], targ_pt[0])
-            #     ## find correct look-ahead point by using heading information
-            #     if abs(angle) < np.pi/2:
-            #         self.goal_x, self.goal_y = targ_pt[0], targ_pt[1]
-            #         break
-
-            ## lateral control using pure pursuit
-            self.goal_x = self.targ_pts[-1][0]
-            self.goal_y = self.targ_pts[-1][1]
-            
-            ## true look-ahead distance between a waypoint and current position
-            ld = np.hypot(self.goal_x, self.goal_y)
-            
-            # find target steering angle (tuning this part as needed)
-            k = 0.6  # 0.8
-            i = 4.0  # 2.0
-            angle_limit = 80  # 60
-            alpha = np.arctan2(self.goal_y, self.goal_x)
-            angle = np.arctan2((k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * i
-            target_steering = round(np.clip(angle, -np.radians(angle_limit), np.radians(angle_limit)), 3)
-            target_steering_deg = round(np.degrees(target_steering))
-            
-            ## compute track curvature for longititudal control
-            if len(self.targ_pts) >= 3:
-                dx0 = self.targ_pts[-2][0] - self.targ_pts[-3][0]
-                dy0 = self.targ_pts[-2][1] - self.targ_pts[-3][1]
-                dx1 = self.targ_pts[-1][0] - self.targ_pts[-2][0]
-                dy1 = self.targ_pts[-1][1] - self.targ_pts[-2][1]
-                ddx, ddy = dx1 - dx0, dy1 - dy0
-                curvature = np.inf if dx1 == 0 and dy1 == 0 else abs((dx1*ddy - dy1*ddx) / (dx1**2 + dy1**2) ** (3/2))
-            else:
-                curvature = np.inf
-
-            ## adjust speed according to curvature and steering angle
-            curv_min = 0.0
-            curv_max = 0.4
-            vel_min = 0.6
-            vel_max = 1.0
-            curvature = min(curv_max, curvature)
-            curvature = max(curv_min, curvature)
-            target_velocity = vel_max - (vel_max - vel_min) * curvature / (curv_max - curv_min)
-            steering_limit = 60
-            if target_steering >= np.radians(steering_limit):
-                target_velocity = vel_min
-            
-            ct_error = round(np.sin(alpha) * ld, 3)
-            print("Lookahead distance: ", str(ld))
-            print("Crosstrack Error: " + str(ct_error))
-            print("Steering angle: " + str(target_steering_deg) + " degrees\n")
-            print("Velocity: " + str(target_velocity))
-            
-            self.drive_msg.header.stamp = rospy.get_rostime()
-            self.drive_msg.drive.steering_angle = target_steering
-            self.drive_msg.drive.speed = target_velocity
-            self.ctrl_pub.publish(self.drive_msg)
-
+            self.run()
             self.rate.sleep()
 
 ###################################################################################################

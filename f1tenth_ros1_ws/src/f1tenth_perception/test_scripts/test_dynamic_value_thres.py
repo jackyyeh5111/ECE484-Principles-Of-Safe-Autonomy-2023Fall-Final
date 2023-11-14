@@ -421,7 +421,7 @@ def drawCurvature(color_warped, x_arr, coeffs, thickness=10):
     return curve
 
 
-def line_fit(binary_warped, histogram, img):
+def line_fit(binary_warped, histogram, raw_img_warped):
     """
     Find and fit lane lines
     """
@@ -461,6 +461,9 @@ def line_fit(binary_warped, histogram, img):
     if best_left_base_x == -1:
         return None
     
+    blurred_img = cv2.GaussianBlur(raw_img_warped, (5, 5), 0)
+    sobel_x = cv2.Sobel(blurred_img, cv2.CV_64F, 1, 0, ksize=3)
+
     # sliding window
     # height, width = binary_warped.shape
     # sliding_offset = 5
@@ -469,11 +472,7 @@ def line_fit(binary_warped, histogram, img):
     # diff_xdistance_thres = 90
     # window_height = 20
 
-    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray_warped, M, Minv = perspective_transform(gray_img, img)
-    blurred_img = cv2.GaussianBlur(gray_warped, (5, 5), 0)
-    sobel_x = cv2.Sobel(blurred_img, cv2.CV_64F, 1, 0, ksize=3)
-
+    
     # def getSidePoints(y):
     #     max_num_pixel = -1
     #     base_leftx = -1
@@ -653,7 +652,6 @@ def getHistogram(binary_warped):
     histogram = np.sum(binary_warped[-args.hist_y_begin:, :], axis=0)
     return histogram
 
-
 def run(img_path):
     global img_name
     img_name = img_path.strip('.png').split('/')[-1]
@@ -684,15 +682,15 @@ def run(img_path):
     if args.base_algo == "color":
         color_hist = getHistogram(color_warped)
         hist = color_hist.copy()
-        warped = color_warped.copy()
+        contour_warped = color_warped.copy()
     elif args.base_algo == "grad":
         sobel_hist = getHistogram(sobel_warped)
         hist = sobel_hist.copy()
-        warped = sobel_warped.copy()
+        contour_warped = sobel_warped.copy()
     elif args.base_algo == "combine":
         combined_hist = getHistogram(combined_warped)
         hist = combined_hist.copy()
-        warped = combined_warped.copy()
+        contour_warped = combined_warped.copy()
 
     plotHist(hist, "target")
     vis_hist = fixedAspectRatioResize(
@@ -724,7 +722,7 @@ def run(img_path):
     #     imshow("vis_color", vis_color)
     #     imshow("vis_combined", vis_combined)
 
-    ret = line_fit(warped, hist, img)
+    ret = line_fit(contour_warped, hist, gray_img_warped)
     if ret is None:
         print ("Fail to fit line")
         exit(1)

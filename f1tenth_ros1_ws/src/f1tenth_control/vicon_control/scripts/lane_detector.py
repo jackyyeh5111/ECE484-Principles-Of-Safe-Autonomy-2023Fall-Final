@@ -19,23 +19,20 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
 parser.add_argument('--sat_thresh', type=str, default='60,255')
-parser.add_argument('--val_thresh', type=str, default='50,255')
-parser.add_argument('--hue_thresh', type=str, default='10,40')
+parser.add_argument('--val_thres_percentile', type=int, default=65)
+parser.add_argument('--hue_thresh', type=str, default='15,40')
 parser.add_argument('--dilate_size', type=int, default=5)
+parser.add_argument('--hist_y_begin', type=int, default=30)
 parser.add_argument('--perspective_pts', '-p',
-                    type=str, default='121,470,312,0')
+                    type=str, default='218,467,348,0')
 args = parser.parse_args()
 
 OUTPUT_DIR = './output'
-TEST_DIR = '/Users/jackyyeh/Desktop/Courses/UIUC/ECE484-Principles-Of-Safe-Autonomy/assignments/MP1/test_imgs'
+
 # TMP_DIR = './vis_{}'.format(args.append_str)
 grad_thres_min, grad_thres_max = args.gradient_thresh.split(',')
 grad_thres_min, grad_thres_max = int(grad_thres_min), int(grad_thres_max)
 assert grad_thres_min < grad_thres_max
-
-val_thres_min, val_thres_max = args.val_thresh.split(',')
-val_thres_min, val_thres_max = int(val_thres_min), int(val_thres_max)
-assert val_thres_min < val_thres_max
 
 sat_thres_min, sat_thres_max = args.sat_thresh.split(',')
 sat_thres_min, sat_thres_max = int(sat_thres_min), int(sat_thres_max)
@@ -48,6 +45,10 @@ src_leftx, src_rightx, laney, offsety = args.perspective_pts.split(',')
 src_leftx, src_rightx, laney, offsety = int(
     src_leftx), int(src_rightx), int(laney), int(offsety)
 
+INCH2METER = 0.0254
+PIX2METER_X = 0.0009525 # meter
+PIX2METER_Y = 0.0018518 # meter
+DIST_CAM2FOV_INCH = 16 # inch
 
 def imshow(window_name, image):
     cv2.imshow(window_name, image)
@@ -55,7 +56,7 @@ def imshow(window_name, image):
     cv2.destroyAllWindows()
 
 
-class lanenet_detector():
+class LaneDetector():
     def __init__(self, test_mode=False):
         self.test_mode = test_mode
         if not self.test_mode:
@@ -72,6 +73,7 @@ class lanenet_detector():
             self.detected = False
             self.hist = True
             self.counter = 0
+            self.way_pts = []
 
     def img_callback(self, data):
 
@@ -82,16 +84,17 @@ class lanenet_detector():
             print(e)
 
         raw_img = cv_image.copy()
-        mask_image, bird_image = self.detection(raw_img)
+        self.detection(raw_img)
+        # mask_image, bird_image = self.detection(raw_img)
 
-        if mask_image is not None and bird_image is not None:
-            # Convert an OpenCV image into a ROS image message
-            out_img_msg = self.bridge.cv2_to_imgmsg(mask_image, 'bgr8')
-            out_bird_msg = self.bridge.cv2_to_imgmsg(bird_image, 'bgr8')
+        # if mask_image is not None and bird_image is not None:
+        #     # Convert an OpenCV image into a ROS image message
+        #     out_img_msg = self.bridge.cv2_to_imgmsg(mask_image, 'bgr8')
+        #     out_bird_msg = self.bridge.cv2_to_imgmsg(bird_image, 'bgr8')
 
-            # Publish image message in ROS
-            self.pub_image.publish(out_img_msg)
-            self.pub_bird.publish(out_bird_msg)
+        #     # Publish image message in ROS
+        #     self.pub_image.publish(out_img_msg)
+        #     self.pub_bird.publish(out_bird_msg)
 
     def gradient_thresh(self, img, thresh_min=grad_thres_min, thresh_max=grad_thres_max):
         """
@@ -129,7 +132,7 @@ class lanenet_detector():
 
         return binary_output
 
-    def color_thresh(self, img, val_thres_min, val_thres_max, sat_thres_min, sat_thres_max):
+    def color_thresh(self, img, val_thres):
         """
         Convert RGB to HSL and threshold to binary image using S channel
         """
@@ -137,6 +140,7 @@ class lanenet_detector():
         # 2. Apply threshold on S channel to get binary image
         # Hint: threshold on H to remove green grass
         hls_img = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
+        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
         # For HSL
         # ref: https://docs.opencv.org/3.4/de/d25/imgproc_color_conversions.html#color_convert_rgb_hls
@@ -145,10 +149,18 @@ class lanenet_detector():
         # Step 2: Apply threshold on the S (Saturation) channel to get a binary image
         h, l, s = cv2.split(hls_img)
         binary_output = np.zeros_like(l)
-        sat_cond = ((sat_thres_min <= s) & (s <= sat_thres_max)) | (s == 0)
-        val_cond = (val_thres_min <= l) & (l <= val_thres_max)
+        sat_cond = ((sat_thres_min <= s) & (s <= sat_thres_max))
+        
+        # Use gray image instead of L channel of HLS (their images are different!)
+        val_cond = (val_thres <= gray_img)
         hue_cond = (hue_thres_min <= h) & (h <= hue_thres_max)
+        
         binary_output[val_cond & sat_cond & hue_cond] = 1
+        
+        # closing
+        kernel = np.ones((5, 5), np.uint8)
+        binary_output = cv2.morphologyEx(
+            binary_output.astype(np.uint8), cv2.MORPH_CLOSE, kernel)
 
         return binary_output
 
@@ -217,74 +229,123 @@ class lanenet_detector():
 
         return warped_img, M, Minv
 
+    def findContourForColor(self, color_warped):
+        # Find the contours for color (ideeally two contours along the trajectory)
+        contours, _ = cv2.findContours(
+            color_warped, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        contour_canvas = np.zeros_like(color_warped)
+        cv2.drawContours(contour_canvas, contours, -1, 1, 1)
+
+        # remove contours along the image border
+        contour_canvas[-5:, :] = 0
+        contour_canvas[:5, :] = 0
+
+        return contour_canvas
+
+    def get_latest_waypoints(self):
+        return self.way_pts
+    
+    def update_waypoints(self, ret, width, height, look_ahead_dist = 1.0):
+            lanex = ret['lanex']
+            laney = ret['laney']
+            
+            # transform from image coord (x, y) to camera coord in meters
+            lanex = [(x - width // 2) * PIX2METER_X for x in lanex]
+            laney = [(height - y) * PIX2METER_Y + DIST_CAM2FOV_INCH * INCH2METER for y in laney]
+            
+            # lane_fit = np.polyfit(laney, lanex, deg=2)
+            # for x, y in zip(lanex, laney):
+            #     print (x, y)
+            
+            way_pts = [(x, y) for x, y in zip(lanex, laney)]
+            
+            # only update way pts when succefully fit lines
+            if len(way_pts) != 0:
+                self.way_pts = way_pts
+        
     def detection(self, img):
 
-        binary_img = self.combinedBinaryImage(img)
-        img_birdeye, M, Minv = self.perspective_transform(binary_img)
+        # get dynamic value thres
+        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        gray_img_warped, M, Minv = self.perspective_transform(gray_img)
+        val_thres = np.percentile(gray_img_warped, args.val_thres_percentile)
+        
+        # use color_thresh result only
+        color_output = self.color_thresh(img, val_thres)
+        color_warped, M, Minv = self.perspective_transform(color_output)
+        contour_warped = self.findContourForColor(color_warped)
+        
+        # line fit
+        hist = np.sum(color_warped[-args.hist_y_begin:, :], axis=0)
+        ret = line_fit(contour_warped, hist, gray_img_warped)
+            
+        # get get_waypoints
+        height, width = img.shape[:2]
+        self.update_waypoints(ret, width, height, look_ahead_dist = 1.0)
+        
+        # if not self.hist:
+        #     # Fit lane without previous result
+        #     ret = line_fit(img_birdeye)
+        #     left_fit = ret['left_fit']
+        #     right_fit = ret['right_fit']
+        #     nonzerox = ret['nonzerox']
+        #     nonzeroy = ret['nonzeroy']
+        #     left_lane_inds = ret['left_lane_inds']
+        #     right_lane_inds = ret['right_lane_inds']
 
-        if not self.hist:
-            # Fit lane without previous result
-            ret = line_fit(img_birdeye)
-            left_fit = ret['left_fit']
-            right_fit = ret['right_fit']
-            nonzerox = ret['nonzerox']
-            nonzeroy = ret['nonzeroy']
-            left_lane_inds = ret['left_lane_inds']
-            right_lane_inds = ret['right_lane_inds']
+        # else:
+        #     # Fit lane with previous result
+        #     if not self.detected:
+        #         ret = line_fit(img_birdeye)
 
-        else:
-            # Fit lane with previous result
-            if not self.detected:
-                ret = line_fit(img_birdeye)
+        #         if ret is not None:
+        #             left_fit = ret['left_fit']
+        #             right_fit = ret['right_fit']
+        #             nonzerox = ret['nonzerox']
+        #             nonzeroy = ret['nonzeroy']
+        #             left_lane_inds = ret['left_lane_inds']
+        #             right_lane_inds = ret['right_lane_inds']
 
-                if ret is not None:
-                    left_fit = ret['left_fit']
-                    right_fit = ret['right_fit']
-                    nonzerox = ret['nonzerox']
-                    nonzeroy = ret['nonzeroy']
-                    left_lane_inds = ret['left_lane_inds']
-                    right_lane_inds = ret['right_lane_inds']
+        #             left_fit = self.left_line.add_fit(left_fit)
+        #             right_fit = self.right_line.add_fit(right_fit)
 
-                    left_fit = self.left_line.add_fit(left_fit)
-                    right_fit = self.right_line.add_fit(right_fit)
+        #             self.detected = True
+        #     else:
+        #         left_fit = self.left_line.get_fit()
+        #         right_fit = self.right_line.get_fit()
+        #         ret = tune_fit(img_birdeye, left_fit, right_fit)
 
-                    self.detected = True
+        #         if ret is not None:
+        #             left_fit = ret['left_fit']
+        #             right_fit = ret['right_fit']
+        #             nonzerox = ret['nonzerox']
+        #             nonzeroy = ret['nonzeroy']
+        #             left_lane_inds = ret['left_lane_inds']
+        #             right_lane_inds = ret['right_lane_inds']
 
-            else:
-                left_fit = self.left_line.get_fit()
-                right_fit = self.right_line.get_fit()
-                ret = tune_fit(img_birdeye, left_fit, right_fit)
+        #             left_fit = self.left_line.add_fit(left_fit)
+        #             right_fit = self.right_line.add_fit(right_fit)
 
-                if ret is not None:
-                    left_fit = ret['left_fit']
-                    right_fit = ret['right_fit']
-                    nonzerox = ret['nonzerox']
-                    nonzeroy = ret['nonzeroy']
-                    left_lane_inds = ret['left_lane_inds']
-                    right_lane_inds = ret['right_lane_inds']
+        #         else:
+        #             self.detected = False
 
-                    left_fit = self.left_line.add_fit(left_fit)
-                    right_fit = self.right_line.add_fit(right_fit)
+        #     # Annotate original image
+        #     bird_fit_img = None
+        #     combine_fit_img = None
+        #     if ret is not None:
+        #         bird_fit_img = bird_fit(img_birdeye, ret, save_file=None)
+        #         combine_fit_img = final_viz(img, left_fit, right_fit, Minv)
+        #         print("Lanes detected!")
+        #     else:
+        #         print("Unable to detect lanes")
 
-                else:
-                    self.detected = False
-
-            # Annotate original image
-            bird_fit_img = None
-            combine_fit_img = None
-            if ret is not None:
-                bird_fit_img = bird_fit(img_birdeye, ret, save_file=None)
-                combine_fit_img = final_viz(img, left_fit, right_fit, Minv)
-                print("Lanes detected!")
-            else:
-                print("Unable to detect lanes")
-
-            return combine_fit_img, bird_fit_img
+        #     return combine_fit_img, bird_fit_img
 
 
 if __name__ == '__main__':
     # init args
     rospy.init_node('lanenet_node', anonymous=True)
-    lanenet_detector()
+    print ('Start to detect...')
+    LaneDetector()
     while not rospy.core.is_shutdown():
         rospy.rostime.wallsleep(0.5)
