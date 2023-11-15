@@ -261,7 +261,7 @@ class LaneDetector():
         contour_warped = self.findContourForColor(color_warped)
         
         # line fit
-        hist = np.sum(color_warped[-self.hist_y_begin:, :], axis=0)
+        hist = np.sum(contour_warped[-self.hist_y_begin:, :], axis=0)
         ret = line_fit(contour_warped, hist, gray_img_warped)
         if ret is None:
             return
