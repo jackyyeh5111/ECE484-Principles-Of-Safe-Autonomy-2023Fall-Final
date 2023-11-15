@@ -67,36 +67,42 @@ def get_output_img(raw_img, vis_warped, ctrl_msgs, way_pts):
     font_thickness = 1
     font = cv2.FONT_HERSHEY_SIMPLEX
     padding = 10
+    (box_x, box_y), _ = cv2.getTextSize(
+            "dummy", font, font_scale, font_thickness)
 
     # top left
     pos = [padding, height + 30]
+    cv2.putText(concat, "Params:", pos, font,
+                font_scale, font_color, font_thickness)
     for msg in ctrl_params:
+        pos[1] = pos[1] + box_y + padding
         cv2.putText(concat, msg, pos, font,
                     font_scale, font_color, font_thickness)
         (box_x, box_y), _ = cv2.getTextSize(
             msg, font, font_scale, font_thickness)
-        pos[1] = pos[1] + box_y + padding
 
     # top center
+    font_color = (0, 128, 255)
     pos = [padding + width//3, height + 30]
+    cv2.putText(concat, "Control signal:", pos, font,
+                font_scale, font_color, font_thickness)
+    
     for msg in ctrl_msgs:
+        pos[1] = pos[1] + box_y + padding
         cv2.putText(concat, msg, pos, font,
                     font_scale, font_color, font_thickness)
-        (box_x, box_y), _ = cv2.getTextSize(
-            msg, font, font_scale, font_thickness)
-        pos[1] = pos[1] + box_y + padding
-
+        
     # top right
+    font_color = (0, 255, 0)
     pos = [width - 150, height + 30]
+    cv2.putText(concat, "Way pts:", pos, font,
+                font_scale, font_color, font_thickness)
     for way_pt in way_pts:
+        pos[1] = pos[1] + box_y + padding
         text = '({:.2f}, {:.2f})'.format(way_pt[0], way_pt[1])
         cv2.putText(concat, text, pos, font,
-                    font_scale, (0, 255, 0), font_thickness)
+                    font_scale, font_color, font_thickness)
         
-        (box_x, box_y), _ = cv2.getTextSize(
-            msg, font, font_scale, font_thickness)
-        pos[1] = pos[1] + box_y + padding
-
     return concat
 
 def run(img_path, lane_detector, controller):
