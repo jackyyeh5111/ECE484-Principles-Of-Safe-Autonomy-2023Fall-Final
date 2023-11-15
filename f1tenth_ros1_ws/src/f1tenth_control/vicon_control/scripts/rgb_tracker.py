@@ -30,9 +30,6 @@ parser.add_argument('--vel_min', type=float, default=0.6)
 parser.add_argument('--vel_max', type=float, default=1.0)
 parser.add_argument('--look_ahead', type=float, default=1.0)
 
-args = parser.parse_args()
-
-
 def main():
     args = parser.parse_args()
     print ('======= Initial arguments =======')

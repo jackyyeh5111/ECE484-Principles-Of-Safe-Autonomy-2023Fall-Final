@@ -11,28 +11,7 @@ import pathlib
 import os
 import cv2
 import numpy as np
-
-parser = argparse.ArgumentParser()
-
-# lane detector arguments
-parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
-parser.add_argument('--sat_thresh', type=str, default='60,255')
-parser.add_argument('--val_thres_percentile', type=int, default=65)
-parser.add_argument('--hue_thresh', type=str, default='15,40')
-parser.add_argument('--dilate_size', type=int, default=5)
-parser.add_argument('--hist_y_begin', type=int, default=30)
-parser.add_argument('--perspective_pts', '-p',
-                    type=str, default='218,467,348,0')
-
-# controller arguments
-parser.add_argument('--steering_k', type=float, default=0.6)
-parser.add_argument('--steering_i', type=float, default=4.0)
-parser.add_argument('--angle_limit', type=float, default=80)
-parser.add_argument('--curv_min', type=float, default=0.0)
-parser.add_argument('--curv_max', type=float, default=0.4)
-parser.add_argument('--vel_min', type=float, default=0.6)
-parser.add_argument('--vel_max', type=float, default=1.0)
-parser.add_argument('--look_ahead', type=float, default=1.0)
+from rgb_tracker import parser
 
 # debug params
 parser.add_argument('--specified_name', '-s', type=str)
@@ -113,10 +92,11 @@ def run(img_path, lane_detector, controller):
 
         out_img = get_output_img(raw_img, vis_warped, ctrl_msgs, way_pts)
         output_path = os.path.join(OUTPUT_DIR, img_name)
+        print ('output_path:', output_path)
         cv2.imwrite(output_path, out_img)
     
 def main():
-    args = parser.parse_args()
+    # args = parser.parse_args()
     print('======= Initial arguments =======')
     for key, val in vars(args).items():
         print(f"{key} => {val}")
