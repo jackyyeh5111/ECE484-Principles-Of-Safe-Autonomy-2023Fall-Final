@@ -6,7 +6,7 @@ import rospy
 import os
 import pathlib
 
-from line_fit import line_fit, tune_fit, bird_fit, final_viz
+from line_fit import line_fit, line_fit_right
 from Line import Line
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
@@ -262,7 +262,8 @@ class LaneDetector():
         
         # line fit
         hist = np.sum(contour_warped[-self.hist_y_begin:, :], axis=0)
-        ret = line_fit(contour_warped, hist, gray_img_warped)
+        # ret = line_fit(contour_warped, hist, gray_img_warped)
+        ret = line_fit_right(contour_warped, hist, gray_img_warped)
         if ret is None:
             return
             

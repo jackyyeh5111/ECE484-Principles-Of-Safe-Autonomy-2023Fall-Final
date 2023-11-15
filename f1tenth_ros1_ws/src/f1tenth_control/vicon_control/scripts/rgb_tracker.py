@@ -48,7 +48,10 @@ def main():
         print ('\nStart navigation...')
         while not rospy.is_shutdown():
             way_pts = lane_detector.get_latest_waypoints()
-            if len(way_pts) != 0:
+            
+            # Do not update control signal. 
+            # Because it cannot fit polyline if way points < 3
+            if len(way_pts) >= 3:
                 controller.run(way_pts)
             rate.sleep()  # Wait a while before trying to get a new waypoints
     except rospy.ROSInterruptException:

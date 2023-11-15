@@ -73,6 +73,31 @@ class F1tenth_controller(object):
         targ_idx = np.where((abs(angle_arr) < 90) & (dist_arr < self.look_ahead))[0]
         self.targ_pts = list(pts_arr[:,targ_idx].transpose())
 
+    def get_steering_based_point(self, targ_pts, max_step = 100):
+        """ 
+            Extend the curve to find the most suitable way point
+        """
+        self.look_ahead
+        lanex = [pt[0] for pt in targ_pts]
+        laney = [pt[1] for pt in targ_pts]
+        lane_fit = np.polyfit(lanex, laney, deg=2)
+        max_x = np.max(lanex)
+        min_x = np.min(lanex)
+        step = (max_x - min_x) / 50
+        
+        steering_based_pt = [-1, -1]
+        for i in range(max_step):
+            x = min_x + i*step
+            y = np.polyval(lane_fit, x)
+            dist = np.hypot(x, y)
+            
+            steering_based_pt = [x, y]
+            if dist > self.look_ahead:
+                break
+            
+        return steering_based_pt
+        
+        
     def run(self, way_pts=None):
         ## find the goal point which is the last in the set of points less than lookahead distance
         if way_pts is None: # way_pts is provided by the perload file
@@ -88,8 +113,9 @@ class F1tenth_controller(object):
         #         break
 
         ## lateral control using pure pursuit
-        self.goal_x = self.targ_pts[-1][0]
-        self.goal_y = self.targ_pts[-1][1]
+        self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts)
+        # self.goal_x = self.targ_pts[-1][0]
+        # self.goal_y = self.targ_pts[-1][1]
         
         ## true look-ahead distance between a waypoint and current position
         ld = np.hypot(self.goal_x, self.goal_y)
@@ -101,11 +127,19 @@ class F1tenth_controller(object):
         target_steering_deg = round(np.degrees(target_steering))
         
         ## compute track curvature for longititudal control
+        num_waypts = len(self.targ_pts)
+        idxs = [0, num_waypts // 2, num_waypts - 1]
+            
         if len(self.targ_pts) >= 3:
-            dx0 = self.targ_pts[-2][0] - self.targ_pts[-3][0]
-            dy0 = self.targ_pts[-2][1] - self.targ_pts[-3][1]
-            dx1 = self.targ_pts[-1][0] - self.targ_pts[-2][0]
-            dy1 = self.targ_pts[-1][1] - self.targ_pts[-2][1]
+            dx0 = self.targ_pts[idxs[1]][0] - self.targ_pts[idxs[0]][0]
+            dy0 = self.targ_pts[idxs[1]][1] - self.targ_pts[idxs[0]][1]
+            dx1 = self.targ_pts[idxs[2]][0] - self.targ_pts[idxs[1]][0]
+            dy1 = self.targ_pts[idxs[2]][1] - self.targ_pts[idxs[1]][1]
+    
+            # dx0 = self.targ_pts[-2][0] - self.targ_pts[-3][0]
+            # dy0 = self.targ_pts[-2][1] - self.targ_pts[-3][1]
+            # dx1 = self.targ_pts[-1][0] - self.targ_pts[-2][0]
+            # dy1 = self.targ_pts[-1][1] - self.targ_pts[-2][1]
             ddx, ddy = dx1 - dx0, dy1 - dy0
             curvature = np.inf if dx1 == 0 and dy1 == 0 else abs((dx1*ddy - dy1*ddx) / (dx1**2 + dy1**2) ** (3/2))
         else:
@@ -133,6 +167,7 @@ class F1tenth_controller(object):
             "steering(deg): {}".format(target_steering_deg),
             "curvature: {:.3f}".format(curvature),
             "target_vel: {:.2f}".format(target_velocity),
+            "steer_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y)
         ]
         
         # print msgs
