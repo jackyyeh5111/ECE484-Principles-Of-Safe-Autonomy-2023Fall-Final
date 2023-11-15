@@ -22,23 +22,19 @@ PIX2METER_Y = 0.0018518 # meter
 DIST_CAM2FOV_INCH = 21 # inch
 
 class LaneDetector():
-    def __init__(self, args, test_mode=False):
+    def __init__(self, args, debug_mode=False):
         self.parse_params(args)
-        self.test_mode = test_mode
-        if not self.test_mode:
+        self.debug_mode = debug_mode
+        
+        self.way_pts = []
+        if not self.debug_mode:
             self.bridge = CvBridge()
             self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback, queue_size=1)
             self.pub_image = rospy.Publisher(
                 "lane_detection/annotate", Image, queue_size=1)
             self.pub_bird = rospy.Publisher(
                 "lane_detection/birdseye", Image, queue_size=1)
-            self.left_line = Line(n=5)
-            self.right_line = Line(n=5)
-            self.detected = False
-            self.hist = True
-            self.counter = 0
-            self.way_pts = []
-    
+            
     def parse_params(self, args):
         # parse params
         self.grad_thres_min, self.grad_thres_max = args.gradient_thresh.split(',')
@@ -72,7 +68,7 @@ class LaneDetector():
         start_time = time.time()
         
         raw_img = cv_image.copy()
-        mask_image, bird_image = self.detection(raw_img)
+        mask_image, bird_image, way_pts = self.detection(raw_img)
 
         print("Detection takes time: {:.3f} seconds".format(time.time() - start_time))
 
@@ -240,10 +236,10 @@ class LaneDetector():
             lanex = [(x - width // 2) * PIX2METER_X for x in lanex]
             laney = [(height - y) * PIX2METER_Y + DIST_CAM2FOV_INCH * INCH2METER for y in laney]
             
-            print ('\n--------- waypoints ---------')
-            for i, (x, y) in enumerate(zip(lanex, laney)):
-                print ('{} => Jacky coord: ({:.2f}, {:.2f}), Ricky coord: ({:.2f}, {:.2f})'
-                       .format(i+1, x, y, y, -x))
+            # print ('\n--------- waypoints ---------')
+            # for i, (x, y) in enumerate(zip(lanex, laney)):
+            #     print ('{} => Jacky coord: ({:.2f}, {:.2f}), Ricky coord: ({:.2f}, {:.2f})'
+            #            .format(i+1, x, y, y, -x))
             
             # change to Ricky's coordinate    
             way_pts = [(y, -x) for x, y in zip(lanex, laney)]
@@ -274,7 +270,7 @@ class LaneDetector():
         height, width = img.shape[:2]
         self.update_waypoints(ret, width, height, look_ahead_dist = 1.0)
         
-        return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR)
+        return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR), self.way_pts
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

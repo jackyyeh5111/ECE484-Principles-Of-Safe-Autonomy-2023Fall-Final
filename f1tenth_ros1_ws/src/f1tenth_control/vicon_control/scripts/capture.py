@@ -33,7 +33,7 @@ def img_callback(data):
         return
     
     cnt += 1
-    output_path = os.path.join(OUTPUT_DIR, '{}_{}.jpg'.format(args.output_name, cnt))
+    output_path = os.path.join(OUTPUT_DIR, '{}_{}.png'.format(args.output_name, cnt))
     print ('Output image: {}'.format(output_path))
     cv2.imwrite(output_path, cv_image)
     

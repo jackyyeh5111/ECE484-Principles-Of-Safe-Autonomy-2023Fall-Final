@@ -9,7 +9,7 @@ import argparse
 
 from way_pts import way_pts
 class F1tenth_controller(object):
-    def __init__(self, args):
+    def __init__(self, args, debug_mode=False):
         self.steering_k = args.steering_k
         self.steering_i = args.steering_i
         self.angle_limit = args.angle_limit
@@ -18,19 +18,21 @@ class F1tenth_controller(object):
         self.vel_min = args.vel_min
         self.vel_max = args.vel_max
         self.look_ahead = args.look_ahead
-        
-        self.rate = rospy.Rate(30)  # Hz
-        self.ctrl_pub = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
-        self.drive_msg = AckermannDriveStamped()
-        self.drive_msg.header.frame_id = "f1tenth_control"
-
         self.wheelbase = 0.325
-        self.read_waypoints()
+        self.debug_mode = debug_mode
+        
+        if not debug_mode:
+            self.rate = rospy.Rate(30)  # Hz
+            self.ctrl_pub = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
+            self.drive_msg = AckermannDriveStamped()
+            self.drive_msg.header.frame_id = "f1tenth_control"
 
-        self.car_state_sub = rospy.Subscriber('/car_state', Float64MultiArray, self.carstate_callback)
-        self.car_x   = 0.0
-        self.car_y   = 0.0
-        self.car_yaw = 0.0
+            self.read_waypoints()
+
+            self.car_state_sub = rospy.Subscriber('/car_state', Float64MultiArray, self.carstate_callback)
+            self.car_x   = 0.0
+            self.car_y   = 0.0
+            self.car_yaw = 0.0
 
     def carstate_callback(self, data):
         self.car_x = data.data[0]
@@ -118,18 +120,27 @@ class F1tenth_controller(object):
             target_velocity = self.vel_min
         
         ct_error = round(np.sin(alpha) * ld, 3)
-        print ('')
         
-        print("Lookahead distance: {:.3f}".format(ld))
-        print("Crosstrack Error: {:.3f}".format(ct_error))
-        print("Steering angle: {} degrees | limit: {}".format(target_steering_deg, target_steering >= np.radians(steering_limit)))
-        print("curvature: {:.3f}".format(curvature))
-        print("Velocity: {:.2f}".format(target_velocity))
+        if not self.debug_mode:
+            self.drive_msg.header.stamp = rospy.get_rostime()
+            self.drive_msg.drive.steering_angle = target_steering
+            self.drive_msg.drive.speed = target_velocity
+            self.ctrl_pub.publish(self.drive_msg)
         
-        self.drive_msg.header.stamp = rospy.get_rostime()
-        self.drive_msg.drive.steering_angle = target_steering
-        self.drive_msg.drive.speed = target_velocity
-        self.ctrl_pub.publish(self.drive_msg)
+        msgs = [
+            "lookahead: {:.3f}".format(ld),
+            "ct_error: {:.3f}".format(ct_error),
+            "steering(deg): {}".format(target_steering_deg),
+            "curvature: {:.3f}".format(curvature),
+            "target_vel: {:.2f}".format(target_velocity),
+        ]
+        
+        # print msgs
+        print ('\n----- control msgs -----')
+        for msg in msgs:
+            print (msg)
+
+        return msgs # return msgs for debug
         
     def controller(self):
         while not rospy.is_shutdown():
