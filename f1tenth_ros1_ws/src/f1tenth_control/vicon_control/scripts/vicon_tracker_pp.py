@@ -3,33 +3,27 @@ import rospy
 import numpy as np
 from std_msgs.msg import Float64MultiArray
 from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
+import argparse
 
 ###################################################################################################
 
 from way_pts import way_pts
 class F1tenth_controller(object):
-    def __init__(self, 
-                 steering_k = 0.6,
-                 steering_i = 4.0,
-                 angle_limit = 80,
-                 curv_min = 0.0,
-                 curv_max = 0.4,
-                 vel_min = 0.6,
-                 vel_max = 1.0,):
-        self.steering_k = steering_k
-        self.steering_i = steering_i
-        self.angle_limit = angle_limit
-        self.curv_min = curv_min
-        self.curv_max = curv_max
-        self.vel_min = vel_min
-        self.vel_max = vel_max
+    def __init__(self, args):
+        self.steering_k = args.steering_k
+        self.steering_i = args.steering_i
+        self.angle_limit = args.angle_limit
+        self.curv_min = args.curv_min
+        self.curv_max = args.curv_max
+        self.vel_min = args.vel_min
+        self.vel_max = args.vel_max
+        self.look_ahead = args.look_ahead
         
         self.rate = rospy.Rate(30)  # Hz
         self.ctrl_pub = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
         self.drive_msg = AckermannDriveStamped()
         self.drive_msg.header.frame_id = "f1tenth_control"
 
-        self.look_ahead = 1.0
         self.wheelbase = 0.325
         self.read_waypoints()
 
@@ -124,11 +118,13 @@ class F1tenth_controller(object):
             target_velocity = self.vel_min
         
         ct_error = round(np.sin(alpha) * ld, 3)
-        print("Lookahead distance: ", str(ld))
-        print("Crosstrack Error: " + str(ct_error))
-        print("Steering angle: {} degrees | larger than limit: {}".format(target_steering_deg, target_steering >= np.radians(steering_limit)))
-        print("curvature: " + str(curvature))
-        print("Velocity: " + str(target_velocity))
+        print ('')
+        
+        print("Lookahead distance: {:.3f}".format(ld))
+        print("Crosstrack Error: {:.3f}".format(ct_error))
+        print("Steering angle: {} degrees | limit: {}".format(target_steering_deg, target_steering >= np.radians(steering_limit)))
+        print("curvature: {:.3f}".format(curvature))
+        print("Velocity: {:.2f}".format(target_velocity))
         
         self.drive_msg.header.stamp = rospy.get_rostime()
         self.drive_msg.drive.steering_angle = target_steering
@@ -143,10 +139,21 @@ class F1tenth_controller(object):
 ###################################################################################################
 
 def control_main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--steering_k', type=float, default=0.6)
+    parser.add_argument('--steering_i', type=float, default=4.0)
+    parser.add_argument('--angle_limit', type=float, default=80)
+    parser.add_argument('--curv_min', type=float, default=0.0)
+    parser.add_argument('--curv_max', type=float, default=0.4)
+    parser.add_argument('--vel_min', type=float, default=0.6)
+    parser.add_argument('--vel_max', type=float, default=1.0)
+    parser.add_argument('--look_ahead', type=float, default=1.0)
+    args = parser.parse_args()
+
     rospy.init_node('vicon_pp_node', anonymous=True)
-    ctrl = F1tenth_controller()
+    ctrl = F1tenth_controller(args)
     try:
-        ctrl.lateral_controller()
+        ctrl.controller()
     except rospy.ROSInterruptException:
         pass
 

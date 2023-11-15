@@ -28,24 +28,27 @@ parser.add_argument('--curv_min', type=float, default=0.0)
 parser.add_argument('--curv_max', type=float, default=0.4)
 parser.add_argument('--vel_min', type=float, default=0.6)
 parser.add_argument('--vel_max', type=float, default=1.0)
+parser.add_argument('--look_ahead', type=float, default=1.0)
 
 args = parser.parse_args()
 
 
 def main():
+    args = parser.parse_args()
+    print ('======= Initial arguments =======')
+    for key, val in vars(args).items():
+        print (f"{key} => {val}")
+    
+    assert args.curv_min < args.curv_max
+    assert args.vel_min < args.vel_max
+    
     rospy.init_node('rgb_track_node', anonymous=True)
     rate = rospy.Rate(30)  # Hz
 
-    lane_detector = LaneDetector()
-    controller = F1tenth_controller(args.steering_k,
-                                    args.steering_i,
-                                    args.angle_limit,
-                                    args.curv_min,
-                                    args.curv_max,
-                                    args.vel_min,
-                                    args.vel_max)
+    lane_detector = LaneDetector(args)
+    controller = F1tenth_controller(args)
     try:
-        print ('Start navigation...')
+        print ('\nStart navigation...')
         while not rospy.is_shutdown():
             way_pts = lane_detector.get_latest_waypoints()
             if len(way_pts) != 0:

@@ -16,48 +16,18 @@ from std_msgs.msg import Float32
 
 import argparse
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
-parser.add_argument('--sat_thresh', type=str, default='60,255')
-parser.add_argument('--val_thres_percentile', type=int, default=65)
-parser.add_argument('--hue_thresh', type=str, default='15,40')
-parser.add_argument('--dilate_size', type=int, default=5)
-parser.add_argument('--hist_y_begin', type=int, default=30)
-parser.add_argument('--perspective_pts', '-p',
-                    type=str, default='218,467,348,0')
-args = parser.parse_args()
-
-OUTPUT_DIR = './output'
-
-# TMP_DIR = './vis_{}'.format(args.append_str)
-grad_thres_min, grad_thres_max = args.gradient_thresh.split(',')
-grad_thres_min, grad_thres_max = int(grad_thres_min), int(grad_thres_max)
-assert grad_thres_min < grad_thres_max
-
-sat_thres_min, sat_thres_max = args.sat_thresh.split(',')
-sat_thres_min, sat_thres_max = int(sat_thres_min), int(sat_thres_max)
-
-hue_thres_min, hue_thres_max = args.hue_thresh.split(',')
-hue_thres_min, hue_thres_max = int(hue_thres_min), int(hue_thres_max)
-assert hue_thres_min < hue_thres_max
-
-src_leftx, src_rightx, laney, offsety = args.perspective_pts.split(',')
-src_leftx, src_rightx, laney, offsety = int(
-    src_leftx), int(src_rightx), int(laney), int(offsety)
-
 INCH2METER = 0.0254
 PIX2METER_X = 0.0009525 # meter
 PIX2METER_Y = 0.0018518 # meter
 DIST_CAM2FOV_INCH = 21 # inch
 
 class LaneDetector():
-    def __init__(self, test_mode=False):
+    def __init__(self, args, test_mode=False):
+        self.parse_params(args)
         self.test_mode = test_mode
         if not self.test_mode:
             self.bridge = CvBridge()
-            # NOTE
             self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback, queue_size=1)
-            # self.sub_image = rospy.Subscriber('camera/image_raw', Image, self.img_callback, queue_size=1)
             self.pub_image = rospy.Publisher(
                 "lane_detection/annotate", Image, queue_size=1)
             self.pub_bird = rospy.Publisher(
@@ -68,7 +38,29 @@ class LaneDetector():
             self.hist = True
             self.counter = 0
             self.way_pts = []
+    
+    def parse_params(self, args):
+        # parse params
+        self.grad_thres_min, self.grad_thres_max = args.gradient_thresh.split(',')
+        self.grad_thres_min, self.grad_thres_max = int(self.grad_thres_min), int(self.grad_thres_max)
+        assert self.grad_thres_min < self.grad_thres_max
 
+        self.sat_thres_min, self.sat_thres_max = args.sat_thresh.split(',')
+        self.sat_thres_min, self.sat_thres_max = int(self.sat_thres_min), int(self.sat_thres_max)
+        assert self.sat_thres_min < self.sat_thres_max
+
+        self.hue_thres_min, self.hue_thres_max = args.hue_thresh.split(',')
+        self.hue_thres_min, self.hue_thres_max = int(self.hue_thres_min), int(self.hue_thres_max)
+        assert self.hue_thres_min < self.hue_thres_max
+
+        src_leftx, src_rightx, laney, offsety = args.perspective_pts.split(',')
+        self.src_leftx, self.src_rightx, self.laney, self.offsety = int(
+            src_leftx), int(src_rightx), int(laney), int(offsety)
+        
+        self.val_thres_percentile = args.val_thres_percentile
+        self.dilate_size = args.dilate_size
+        self.hist_y_begin = args.hist_y_begin
+        
     def img_callback(self, data):
 
         try:
@@ -93,7 +85,7 @@ class LaneDetector():
             self.pub_image.publish(out_img_msg)
             self.pub_bird.publish(out_bird_msg)
 
-    def gradient_thresh(self, img, thresh_min=grad_thres_min, thresh_max=grad_thres_max):
+    def gradient_thresh(self, img):
         """
         Apply sobel edge detection on input image in x, y direction
         """
@@ -120,8 +112,8 @@ class LaneDetector():
         # Step 5: Convert each pixel to uint8 and apply a threshold to get a binary image
         sobel_combined = np.uint8(sobel_combined)
         binary_output = np.zeros_like(sobel_combined)
-        binary_output[(thresh_min < sobel_combined) &
-                      (sobel_combined < thresh_max)] = 1
+        binary_output[(self.thresh_min < sobel_combined) &
+                      (sobel_combined < self.thresh_max)] = 1
 
         # vis
         # vis = cv2.cvtColor(binary_output*255, cv2.COLOR_GRAY2BGR)
@@ -146,11 +138,11 @@ class LaneDetector():
         # Step 2: Apply threshold on the S (Saturation) channel to get a binary image
         h, l, s = cv2.split(hls_img)
         binary_output = np.zeros_like(l)
-        sat_cond = ((sat_thres_min <= s) & (s <= sat_thres_max))
+        sat_cond = ((self.sat_thres_min <= s) & (s <= self.sat_thres_max))
         
         # Use gray image instead of L channel of HLS (their images are different!)
         val_cond = (val_thres <= gray_img)
-        hue_cond = (hue_thres_min <= h) & (h <= hue_thres_max)
+        hue_cond = (self.hue_thres_min <= h) & (h <= self.hue_thres_max)
         
         binary_output[val_cond & sat_cond & hue_cond] = 1
         
@@ -170,14 +162,12 @@ class LaneDetector():
         # Here you can use as many methods as you want.
 
         SobelOutput = self.gradient_thresh(img)
-        ColorOutput = self.color_thresh(
-            img, val_thres_min, val_thres_max, sat_thres_min, sat_thres_max)
+        ColorOutput = self.color_thresh(img)
 
         kernel = cv2.getStructuringElement(
             cv2.MORPH_ELLIPSE, (args.dilate_size, args.dilate_size))
         ColorOutput = cv2.dilate(ColorOutput, kernel, iterations=1)
-        # imshow("dilate ColorOutput", ColorOutput*255)
-
+        
         binaryImage = np.zeros_like(SobelOutput)
         binaryImage[(ColorOutput == 1)] = 1
         # binaryImage[(ColorOutput == 1) & (SobelOutput == 1)] = 1
@@ -198,10 +188,10 @@ class LaneDetector():
         # Define four points as (x, y) coordinates
         src_height, src_width = img.shape[:2]
 
-        src_pts = np.array([[src_leftx, laney],
-                            [0, src_height - offsety],
-                            [src_width, src_height - offsety],
-                            [src_rightx, laney]], dtype=np.int32)
+        src_pts = np.array([[self.src_leftx, self.laney],
+                            [0, src_height - self.offsety],
+                            [src_width, src_height - self.offsety],
+                            [self.src_rightx, self.laney]], dtype=np.int32)
 
         # dst_width, dst_height = 720, 1250
         dst_width, dst_height = src_width, src_height
@@ -267,7 +257,7 @@ class LaneDetector():
         # get dynamic value thres
         gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         gray_img_warped, M, Minv = self.perspective_transform(gray_img)
-        val_thres = np.percentile(gray_img_warped, args.val_thres_percentile)
+        val_thres = np.percentile(gray_img_warped, self.val_thres_percentile)
         
         # use color_thresh result only
         color_output = self.color_thresh(img, val_thres)
@@ -275,7 +265,7 @@ class LaneDetector():
         contour_warped = self.findContourForColor(color_warped)
         
         # line fit
-        hist = np.sum(color_warped[-args.hist_y_begin:, :], axis=0)
+        hist = np.sum(color_warped[-self.hist_y_begin:, :], axis=0)
         ret = line_fit(contour_warped, hist, gray_img_warped)
         if ret is None:
             return
@@ -287,10 +277,21 @@ class LaneDetector():
         return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR)
 
 if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
+    parser.add_argument('--sat_thresh', type=str, default='60,255')
+    parser.add_argument('--val_thres_percentile', type=int, default=65)
+    parser.add_argument('--hue_thresh', type=str, default='15,40')
+    parser.add_argument('--dilate_size', type=int, default=5)
+    parser.add_argument('--hist_y_begin', type=int, default=30)
+    parser.add_argument('--perspective_pts', '-p',
+                        type=str, default='218,467,348,0')
+    args = parser.parse_args()
+
     # init args
     rospy.init_node('lanenet_node', anonymous=True)
     rate = rospy.Rate(30)  # Hz
     print ('Start to detect...')
-    LaneDetector()
+    lane_detector = LaneDetector(args)
     while not rospy.core.is_shutdown():
         rate.sleep()
