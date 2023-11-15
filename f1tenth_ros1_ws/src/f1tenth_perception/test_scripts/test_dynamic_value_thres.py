@@ -61,7 +61,7 @@ img_name = ""
 INCH2METER = 0.0254
 PIX2METER_X = 0.0009525 # meter
 PIX2METER_Y = 0.0018518 # meter
-DIST_CAM2FOV_INCH = 16 # inch
+DIST_CAM2FOV_INCH = 21 # inch
 
 def putText(img, text,
             font_scale=1,
@@ -735,9 +735,9 @@ def run(img_path):
         lanex = [(x - width // 2) * PIX2METER_X for x in lanex]
         laney = [(height - y) * PIX2METER_Y + DIST_CAM2FOV_INCH * INCH2METER for y in laney]
         # lane_fit = np.polyfit(laney, lanex, deg=2)
-        # for x, y in zip(lanex, laney):
-        #     print (x, y)
-        way_pts = [(x, y) for x, y in zip(lanex, laney)]
+        for x, y in zip(lanex, laney):
+            print (x, y)
+        way_pts = [(y, -x) for x, y in zip(lanex, laney)]
         return way_pts
         
     height, width = img.shape[:2]
@@ -748,7 +748,8 @@ def run(img_path):
     ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
     concat = cv2.vconcat([img, SobelOutput, ColorOutput, vis_hist, ret['vis_warped']])
     if args.vis_mode:
-        imshow("concat", concat)
+        imshow("warped", ret['vis_warped'])
+        # imshow("concat", concat)
     if args.vis_output:
         cv2.imwrite(os.path.join(
             TMP_DIR, 'result_{}.png').format(img_name), concat)
