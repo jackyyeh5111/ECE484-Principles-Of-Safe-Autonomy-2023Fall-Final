@@ -13,11 +13,16 @@ import cv2
 import numpy as np
 from rgb_tracker import parser
 
+from sensor_msgs.msg import Image
+from std_msgs.msg import Header
+from cv_bridge import CvBridge, CvBridgeError
+
 # debug params
 parser.add_argument('--specified_name', '-s', type=str)
 parser.add_argument('--num_samples', '-n', type=int, default=-1,
                     help="-1 means check all files in the input folder")
 parser.add_argument('--input_dir', '-i', type=str, default='test_images')
+parser.add_argument("--online", action="store_true") 
 
 args = parser.parse_args()
 
@@ -84,7 +89,7 @@ def get_output_img(raw_img, vis_warped, ctrl_msgs, way_pts):
         
     return concat
 
-def run(img_path, lane_detector, controller):
+def run_offline(img_path, lane_detector, controller):
         img_name = img_path.split('/')[-1]
         raw_img = cv2.imread(img_path)
         vis_warped, color_warped, way_pts = lane_detector.detection(raw_img)
@@ -94,7 +99,33 @@ def run(img_path, lane_detector, controller):
         output_path = os.path.join(OUTPUT_DIR, img_name)
         print ('output_path:', output_path)
         cv2.imwrite(output_path, out_img)
-    
+
+class Debugger():
+    def __init__(self, lane_detector, controller):
+        self.lane_detector = lane_detector
+        self.controller = controller
+        self.bridge = CvBridge()
+        self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback, queue_size=1)
+        self.pub_image = rospy.Publisher(
+            "lane_detection/annotate", Image, queue_size=1)
+        
+    def img_callback(self, data):
+        try:
+            # Convert a ROS image message into an OpenCV image
+            cv_image = self.bridge.imgmsg_to_cv2(data, "bgr8")
+        except CvBridgeError as e:
+            print(e)
+        
+        raw_img = cv_image.copy()
+        vis_warped, color_warped, way_pts = self.lane_detector.detection(raw_img)
+        ctrl_msgs = self.controller.run(way_pts)
+
+        out_img = get_output_img(raw_img, vis_warped, ctrl_msgs, way_pts)
+        out_img_msg = self.bridge.cv2_to_imgmsg(out_img, 'bgr8')
+
+        # Publish image message in ROS
+        self.pub_image.publish(out_img_msg)
+
 def main():
     # args = parser.parse_args()
     print('======= Initial arguments =======')
@@ -108,23 +139,31 @@ def main():
     controller = F1tenth_controller(args, debug_mode=True)
 
     pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
-        
-    if args.specified_name:
-        img_path = os.path.join(
-            args.input_dir, '{}.png'.format(args.specified_name))
-        print ('img_path:', img_path)
-        run(img_path, lane_detector, controller)
+    
+    if args.online:
+        rospy.init_node('rgb_track_node', anonymous=True)
+        rate = rospy.Rate(30)  # Hz    
+        print ('\nStart navigation...')
+        Debugger(lane_detector, controller)
+        while not rospy.is_shutdown():
+            rate.sleep()  # Wait a while before trying to get a new waypoints
     else:
-        paths = sorted(os.listdir(args.input_dir))
-        for i, img_path in enumerate(paths):
-            if i == args.num_samples:
-                break
-            if not img_path.endswith('png') and not img_path.endswith('jpg'):
-                continue
-            
-            img_path = os.path.join(args.input_dir, img_path)
+        if args.specified_name:
+            img_path = os.path.join(
+                args.input_dir, '{}.png'.format(args.specified_name))
             print ('img_path:', img_path)
-            run(img_path, lane_detector, controller)
+            run_offline(img_path, lane_detector, controller)
+        else:
+            paths = sorted(os.listdir(args.input_dir))
+            for i, img_path in enumerate(paths):
+                if i == args.num_samples:
+                    break
+                if not img_path.endswith('png') and not img_path.endswith('jpg'):
+                    continue
+                
+                img_path = os.path.join(args.input_dir, img_path)
+                print ('img_path:', img_path)
+                run_offline(img_path, lane_detector, controller)
 
 if __name__ == '__main__':
     main()
