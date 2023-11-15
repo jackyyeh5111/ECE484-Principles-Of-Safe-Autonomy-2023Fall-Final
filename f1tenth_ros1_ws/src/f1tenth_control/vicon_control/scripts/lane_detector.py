@@ -50,12 +50,6 @@ PIX2METER_X = 0.0009525 # meter
 PIX2METER_Y = 0.0018518 # meter
 DIST_CAM2FOV_INCH = 21 # inch
 
-def imshow(window_name, image):
-    cv2.imshow(window_name, image)
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
-
-
 class LaneDetector():
     def __init__(self, test_mode=False):
         self.test_mode = test_mode
@@ -83,18 +77,21 @@ class LaneDetector():
         except CvBridgeError as e:
             print(e)
 
+        start_time = time.time()
+        
         raw_img = cv_image.copy()
-        self.detection(raw_img)
-        # mask_image, bird_image = self.detection(raw_img)
+        mask_image, bird_image = self.detection(raw_img)
 
-        # if mask_image is not None and bird_image is not None:
-        #     # Convert an OpenCV image into a ROS image message
-        #     out_img_msg = self.bridge.cv2_to_imgmsg(mask_image, 'bgr8')
-        #     out_bird_msg = self.bridge.cv2_to_imgmsg(bird_image, 'bgr8')
+        print("Detection takes time: {:.3f} seconds".format(time.time() - start_time))
 
-        #     # Publish image message in ROS
-        #     self.pub_image.publish(out_img_msg)
-        #     self.pub_bird.publish(out_bird_msg)
+        if mask_image is not None and bird_image is not None:
+            # Convert an OpenCV image into a ROS image message
+            out_img_msg = self.bridge.cv2_to_imgmsg(mask_image, 'bgr8')
+            out_bird_msg = self.bridge.cv2_to_imgmsg(bird_image, 'bgr8')
+
+            # Publish image message in ROS
+            self.pub_image.publish(out_img_msg)
+            self.pub_bird.publish(out_bird_msg)
 
     def gradient_thresh(self, img, thresh_min=grad_thres_min, thresh_max=grad_thres_max):
         """
@@ -287,69 +284,13 @@ class LaneDetector():
         height, width = img.shape[:2]
         self.update_waypoints(ret, width, height, look_ahead_dist = 1.0)
         
-        # if not self.hist:
-        #     # Fit lane without previous result
-        #     ret = line_fit(img_birdeye)
-        #     left_fit = ret['left_fit']
-        #     right_fit = ret['right_fit']
-        #     nonzerox = ret['nonzerox']
-        #     nonzeroy = ret['nonzeroy']
-        #     left_lane_inds = ret['left_lane_inds']
-        #     right_lane_inds = ret['right_lane_inds']
-
-        # else:
-        #     # Fit lane with previous result
-        #     if not self.detected:
-        #         ret = line_fit(img_birdeye)
-
-        #         if ret is not None:
-        #             left_fit = ret['left_fit']
-        #             right_fit = ret['right_fit']
-        #             nonzerox = ret['nonzerox']
-        #             nonzeroy = ret['nonzeroy']
-        #             left_lane_inds = ret['left_lane_inds']
-        #             right_lane_inds = ret['right_lane_inds']
-
-        #             left_fit = self.left_line.add_fit(left_fit)
-        #             right_fit = self.right_line.add_fit(right_fit)
-
-        #             self.detected = True
-        #     else:
-        #         left_fit = self.left_line.get_fit()
-        #         right_fit = self.right_line.get_fit()
-        #         ret = tune_fit(img_birdeye, left_fit, right_fit)
-
-        #         if ret is not None:
-        #             left_fit = ret['left_fit']
-        #             right_fit = ret['right_fit']
-        #             nonzerox = ret['nonzerox']
-        #             nonzeroy = ret['nonzeroy']
-        #             left_lane_inds = ret['left_lane_inds']
-        #             right_lane_inds = ret['right_lane_inds']
-
-        #             left_fit = self.left_line.add_fit(left_fit)
-        #             right_fit = self.right_line.add_fit(right_fit)
-
-        #         else:
-        #             self.detected = False
-
-        #     # Annotate original image
-        #     bird_fit_img = None
-        #     combine_fit_img = None
-        #     if ret is not None:
-        #         bird_fit_img = bird_fit(img_birdeye, ret, save_file=None)
-        #         combine_fit_img = final_viz(img, left_fit, right_fit, Minv)
-        #         print("Lanes detected!")
-        #     else:
-        #         print("Unable to detect lanes")
-
-        #     return combine_fit_img, bird_fit_img
-
+        return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR)
 
 if __name__ == '__main__':
     # init args
     rospy.init_node('lanenet_node', anonymous=True)
+    rate = rospy.Rate(30)  # Hz
     print ('Start to detect...')
     LaneDetector()
     while not rospy.core.is_shutdown():
-        rospy.rostime.wallsleep(0.5)
+        rate.sleep()
