@@ -28,6 +28,8 @@ parser.add_argument('--sat_thresh', type=str, default='60,255')
 parser.add_argument('--val_thres_percentile', type=int, default=65)
 parser.add_argument('--hue_thresh', type=str, default='15,40')
 parser.add_argument('--dilate_size', type=int, default=5)
+parser.add_argument('--window_height', type=int, default=20)
+
 parser.add_argument('--hist_y_begin', type=int, default=30)
 parser.add_argument('--perspective_pts', '-p',
                     type=str, default='218,467,348,0')
@@ -428,108 +430,82 @@ def line_fit(binary_warped, histogram, raw_img_warped):
     """
     ### 1. sliding window to find the base point
     height, width = binary_warped.shape
+    nwindows = 15
     sliding_offset = 5
-    margin = 30
-    best_left_base_x = -1
-    best_right_base_x = -1
-    best_num_pixels = -1
-    best_even_ratio = -1
-    side_xdist = 120
-    assert margin*2 < side_xdist
-    for leftbase in range(margin, width-margin-side_xdist, sliding_offset):
-        rightbase = leftbase + side_xdist
-        left_num_pixels = np.sum(histogram[leftbase-margin:leftbase+margin])
-        right_num_pixels = np.sum(histogram[rightbase-margin:rightbase+margin])
-        total_num_pixels = left_num_pixels + right_num_pixels
-        if total_num_pixels == 0:
-            continue
-        even_ratio = float(left_num_pixels) / total_num_pixels * float(right_num_pixels) / total_num_pixels
-
-        # We matter even_ratio more than num_pixels
-        if even_ratio > best_even_ratio and total_num_pixels > best_num_pixels * 0.8:
-            best_even_ratio = even_ratio
+    margin = 70
+    best_base_x = -1
+    best_num_pixels = 0
+    
+    for basex in range(margin, width-margin, sliding_offset):
+        left = basex - margin
+        right = basex + margin
+        total_num_pixels = cv2.countNonZero(
+            binary_warped[-args.window_height:, left:right])
+        
+        if total_num_pixels > best_num_pixels:
             best_num_pixels = total_num_pixels
-            best_left_base_x = leftbase
-            best_right_base_x = rightbase
-
-    if best_left_base_x == -1:
+            best_base_x = basex
+    
+    if best_base_x == -1:
         return None
     
-    blurred_img = cv2.GaussianBlur(raw_img_warped, (5, 5), 0)
-    sobel_x = cv2.Sobel(blurred_img, cv2.CV_64F, 1, 0, ksize=3)
-
-    window_height = 20
-    nwindows = 15
-    
-    ### 2. correct base point
-    leftx_base = np.argmax(histogram[best_left_base_x-margin:best_left_base_x+margin]) + best_left_base_x-margin
-    rightx_base = np.argmax(histogram[best_right_base_x-margin:best_right_base_x+margin]) + best_right_base_x-margin
-    # rightx_base = np.argmax(histogram[best_base_x:best_base_x+margin]) + best_base_x
-    print("leftx_base:", leftx_base)
-    print("rightx_base:", rightx_base)
+    # visualize
     # vis = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
     # vis = cv2.rectangle(
-    #     vis, (leftx_base, height - window_height), (rightx_base, height), (0, 0, 255))
+    #     vis, (best_base_x - margin, height - args.window_height), 
+    #     (best_base_x + margin, height), 
+    #     (0, 0, 255))
     # imshow("vis", vis)
 
     # Identify the x and y positions of all nonzero pixels in the image
     nonzero = binary_warped.nonzero()
     nonzeroy = np.array(nonzero[0])
     nonzerox = np.array(nonzero[1])
-
-    # Current positions to be updated for each window
-    leftx_current = leftx_base
-    rightx_current = rightx_base
-    # Set the width of the windows +/- margin
-    margin = 30
+ 
     # Set minimum number of pixels found to recenter window
-    minpix = 15
-    # Create empty lists to receive left and right lane pixel indices
-    left_lane_inds = []
-    right_lane_inds = []
-
+    minpix = 200
+    
     # Step through the windows one by one
     color_warped = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
     color_warped[color_warped > 0] = 255
-    
-    def correct(currentx, start_y, end_y, func):
-        y = (start_y + end_y) // 2
         
-        grads = sobel_x.copy()
-        grads[(binary_warped == 0)] = 0
-        grads = grads[y, currentx-margin:currentx+margin]
-        
-        idx = func(grads)
-        return idx + currentx - margin
-        
+    basex = best_base_x
     lane_pts = []
+    prev_basex_list = []
     for i in range(nwindows):
-        win_top = binary_warped.shape[0] - (i + 1) * window_height
-        win_bottom = win_top + window_height
+        win_top = height - (i + 1) * args.window_height
+        win_bottom = win_top + args.window_height
         
-        try:
-            leftx_current = correct(leftx_current, win_top, win_bottom, np.argmax)
-            rightx_current = correct(rightx_current, win_top, win_bottom, np.argmin)
-        except:
-            print ("Lane reaches the boundary.")
+        # adjust basex based on the slope of previous two basex
+        if i >= 2:
+            slope = prev_basex_list[-1] - prev_basex_list[-2]
+            basex = prev_basex_list[-1] + slope
+            
+        window_inds = np.where((nonzerox > basex - margin) &
+                               (nonzerox < basex + margin) &
+                               (nonzeroy > win_top) &
+                               (nonzeroy < win_bottom))
+        window_nonzerox = nonzerox[window_inds]
+        window_nonzeroy = nonzeroy[window_inds]
+        # print (len(window_nonzerox))
+        
+        # finish fitting condition
+        reach_boundary = basex - margin < 0 or \
+                         basex + margin >= width or \
+                         win_top < 0
+        if reach_boundary or len(window_nonzerox) < minpix:
             break
-        lane_pt = ((leftx_current + rightx_current) // 2, (win_top + win_bottom) // 2)
-        lane_pts.append(lane_pt)
         
-        # Identify window boundaries in x and y (and right and left)
-        # left
-        left_lt = [leftx_current - margin, win_top]
-        left_rb = [leftx_current + margin, win_bottom]
-        # right
-        right_lt = [rightx_current - margin, win_top]
-        right_rb = [rightx_current + margin, win_bottom]
-
-        ### Draw the windows on the visualization image using cv2.rectangle() ###
+        # correct basex by average and use average (x, y) as way points
+        basex = int(np.mean(window_nonzerox))
+        basey = int(np.mean(window_nonzeroy))
+        lane_pts.append([basex, basey])
+        prev_basex_list.append(basex)
+            
+        # visualization
         color_warped = cv2.rectangle(
-            color_warped, left_lt, left_rb, (0, 255, 0))
-        color_warped = cv2.rectangle(
-            color_warped, right_lt, right_rb, (0, 255, 0))
-        # imshow("color_warped", color_warped)
+            color_warped, (basex - margin, win_top), (basex +margin, win_bottom), (0, 0, 255))
+        imshow("color_warped", color_warped)
 
     ### vis color_warped ###
     putText(color_warped, "warp & lanefit")
@@ -541,7 +517,7 @@ def line_fit(binary_warped, histogram, raw_img_warped):
         
         ### vis lane points ###
         for x, y in zip(lanex, laney):
-            color_warped = cv2.circle(color_warped, (x, y), 1, (0,255, 0), -1)
+            color_warped = cv2.circle(color_warped, (x, y), 2, (0,255, 0), -1)
             
         ### vis points nonzero ###
         # for x, y in zip(rightx, righty):
@@ -602,7 +578,7 @@ def run(img_path):
     combinedOutput = combinedBinaryImage(SobelOutput, ColorOutput)
     sobel_warped, M, Minv = perspective_transform(SobelOutput, img)
     color_warped, M, Minv = perspective_transform(ColorOutput, img)
-    color_warped = findContourForColor(color_warped)
+    # color_warped = findContourForColor(color_warped)
     combined_warped, M, Minv = perspective_transform(combinedOutput, img)
     
 
@@ -650,8 +626,9 @@ def run(img_path):
     #     imshow("vis_grad", vis_grad)
     #     imshow("vis_color", vis_color)
     #     imshow("vis_combined", vis_combined)
-
-    ret = line_fit(contour_warped, hist, gray_img_warped)
+    
+    ret = line_fit(color_warped, hist, gray_img_warped)
+    # ret = line_fit(contour_warped, hist, gray_img_warped)
     if ret is None:
         print ("Fail to fit line")
         exit(1)
@@ -664,8 +641,8 @@ def run(img_path):
         lanex = [(x - width // 2) * PIX2METER_X for x in lanex]
         laney = [(height - y) * PIX2METER_Y + DIST_CAM2FOV_INCH * INCH2METER for y in laney]
         # lane_fit = np.polyfit(laney, lanex, deg=2)
-        for x, y in zip(lanex, laney):
-            print (x, y)
+        # for x, y in zip(lanex, laney):
+        #     print (x, y)
         way_pts = [(y, -x) for x, y in zip(lanex, laney)]
         return way_pts
         
@@ -675,7 +652,7 @@ def run(img_path):
     ### vis all ###
     SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
     ColorOutput = cv2.cvtColor(ColorOutput*255, cv2.COLOR_GRAY2BGR)
-    concat = cv2.vconcat([img, SobelOutput, ColorOutput, vis_hist, ret['vis_warped']])
+    concat = cv2.vconcat([img, ColorOutput, ret['vis_warped']])
     if args.vis_mode:
         imshow("warped", ret['vis_warped'])
         # imshow("concat", concat)
