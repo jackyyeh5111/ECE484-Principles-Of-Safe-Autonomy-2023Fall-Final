@@ -19,10 +19,12 @@ parser.add_argument('--vis_mode', '-v', action='store_true')
 parser.add_argument('--vis_output', '--vo', action='store_true')
 parser.add_argument('--num_samples', '-n', type=int, default=-1)
 parser.add_argument('--vis_hue', action='store_true')
+parser.add_argument('--vis_sat', action='store_true')
 parser.add_argument('--append_str', '-a', type=str, default='tmp')
 parser.add_argument('--specified_name', '-s', type=str)
 parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
 parser.add_argument('--sat_thresh', type=str, default='60,255')
+parser.add_argument('--sat_cdf_lower_thres', type=float, default=0.5)
 # parser.add_argument('--val_thresh', type=str, default='80,255')
 # parser.add_argument('--val_thres_offset', type=int, default=20)
 parser.add_argument('--val_thres_percentile', type=int, default=65)
@@ -229,6 +231,47 @@ def gradient_thresh(img, thresh_min=grad_thres_min, thresh_max=grad_thres_max):
 
     return binary_output
 
+def vis_hls_hist(h, l, s):
+    # tmp to vis saturaion
+    h_warped, M, Minv = perspective_transform(h)
+    l_warped, M, Minv = perspective_transform(l)
+    s_warped, M, Minv = perspective_transform(s)
+    
+    # Calculate the histogram of the saturation channel
+    histogram, bins = np.histogram(s_warped.flatten(), bins=256, range=[0, 256])
+
+    # Calculate the cumulative distribution function (CDF) of the histogram
+    cdf = histogram.cumsum()
+
+    # Normalize the CDF to the range [0, 1]
+    cdf_normalized = cdf * histogram.max() / cdf.max()
+
+
+    # Plot histograms
+    plt.figure(figsize=(15, 5))
+
+    # Plot H channel histogram
+    plt.subplot(131)
+    plt.hist(h_warped.flatten(), bins=256, color='r', range=[0, 256])
+    plt.title('H Channel Histogram')
+
+    # Plot L channel histogram
+    plt.subplot(132)
+    plt.hist(l_warped.flatten(), bins=256, color='g', range=[0, 256])
+    plt.title('L Channel Histogram')
+
+    # cdf_ratio = cdf_normalized / np.max(cdf_normalized)
+    # for i, val in enumerate(cdf_ratio):
+    #     print (i, val)
+        
+    # Plot S channel histogram
+    plt.subplot(133)
+    plt.plot(cdf_normalized, color='orange')
+    plt.hist(s_warped.flatten(), bins=256, color='b', range=[0, 256])
+    plt.title('S Channel Histogram')
+
+    plt.savefig(os.path.join(TMP_DIR, 'hist_hls.png'))
+    plt.clf()
 
 def color_thresh(img, val_thres):
     """
@@ -248,15 +291,32 @@ def color_thresh(img, val_thres):
     # Step 2: Apply threshold on the S (Saturation) channel to get a binary image
     h, l, s = cv2.split(hls_img)
     binary_output = np.zeros_like(l)
-    sat_cond = ((sat_thres_min <= s) & (s <= sat_thres_max))
+    
+    # dynamic search sat_thres_min
+    s_warped, M, Minv = perspective_transform(s)
+    sat_hist, bins = np.histogram(s_warped.flatten(), bins=256, range=[0, 256])
+
+    # Calculate the cumulative distribution function (CDF) of the histogram
+    cdf = sat_hist.cumsum()
+    cdf_normalized = cdf / cdf.max() # Normalize the CDF to the range [0, 1]
+    bin_idxs = \
+        np.where((cdf_normalized > args.sat_cdf_lower_thres) & (cdf_normalized < 0.95))[0]
+    sat_thres_min = np.argmin( [sat_hist[idx] for idx in bin_idxs] ) + bin_idxs[0]
     
     # Use gray image instead of L channel of HLS (their images are different!)
+    sat_cond = ((sat_thres_min <= s) & (s <= 255))
     val_cond = (val_thres <= gray_img)
     hue_cond = (hue_thres_min <= h) & (h <= hue_thres_max)
-    
     binary_output[val_cond & sat_cond & hue_cond] = 1
 
     ### visualization three channels result ###
+    if args.vis_mode:
+        vis_hls_hist(h, l, s)
+        hist_hls = cv2.imread(os.path.join(TMP_DIR, 'hist_hls.png'))
+        hist_hls = fixedAspectRatioResize(hist_hls, desired_width=hist_hls.shape[1]*3)
+        imshow("hist_hls.png", hist_hls)
+        
+    # vis = cv2.hstack()
     # vis = np.zeros_like(l)
     # vis[sat_cond] = 255
     # imshow("sat", vis)
@@ -268,10 +328,22 @@ def color_thresh(img, val_thres):
     # imshow("hue", vis)
     
     ### visualization for hue testing ###
+    if args.vis_sat:
+        OUTPUT_DIR = "./sat-test"
+        pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+        step = 5
+        MAX_HUE = 180
+        for i in range(0, MAX_HUE - step, step):
+            mask = cv2.inRange(hls_img[:, :, 2], i, i + step)
+            mask[mask > 0] = 255
+            mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+            vis = cv2.hconcat([img, mask])
+            cv2.imwrite(os.path.join(OUTPUT_DIR, 'L{}.jpg'.format(i)), vis)
+
     if args.vis_hue:
         OUTPUT_DIR = "./hue-test"
         pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
-        step = 10
+        step = 5
         MAX_HUE = 180
         for i in range(0, MAX_HUE - step, step):
             mask = cv2.inRange(hls_img[:, :, 0], i, i + step)
@@ -331,7 +403,7 @@ def combinedBinaryImage(SobelOutput, ColorOutput):
     return binaryImage
 
 
-def perspective_transform(img, raw_img):
+def perspective_transform(img):
     """
     Get bird's eye view from input image
     """
@@ -369,9 +441,6 @@ def perspective_transform(img, raw_img):
         img, M, (dst_width, dst_height), flags=cv2.INTER_NEAREST)
 
     ### vis poly lines ###
-    vis_src = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-    vis_dst = cv2.warpPerspective(
-        raw_img, M, (dst_width, dst_height), flags=cv2.INTER_NEAREST)
     # concat = cv2.vconcat([raw_img, vis_dst])
     # if args.vis_mode:
     #     imshow("img", concat)
@@ -505,7 +574,7 @@ def line_fit(binary_warped, histogram, raw_img_warped):
         # visualization
         color_warped = cv2.rectangle(
             color_warped, (basex - margin, win_top), (basex +margin, win_bottom), (0, 0, 255))
-        imshow("color_warped", color_warped)
+        # imshow("color_warped", color_warped)
 
     ### vis color_warped ###
     putText(color_warped, "warp & lanefit")
@@ -564,7 +633,7 @@ def run(img_path):
     img = cv2.imread(img_path)
     # gray_img = cv2.imread(img_path, 0)
     gray_img = img[:, :, 2] # red channel
-    gray_img_warped, M, Minv = perspective_transform(gray_img, img)
+    gray_img_warped, M, Minv = perspective_transform(gray_img)
     
     # val_mean = np.mean(gray_img_warped)
     val_thres = np.percentile(gray_img_warped, args.val_thres_percentile)
@@ -576,10 +645,10 @@ def run(img_path):
     SobelOutput = gradient_thresh(img)
     ColorOutput = color_thresh(img, val_thres)
     combinedOutput = combinedBinaryImage(SobelOutput, ColorOutput)
-    sobel_warped, M, Minv = perspective_transform(SobelOutput, img)
-    color_warped, M, Minv = perspective_transform(ColorOutput, img)
+    sobel_warped, M, Minv = perspective_transform(SobelOutput)
+    color_warped, M, Minv = perspective_transform(ColorOutput)
     # color_warped = findContourForColor(color_warped)
-    combined_warped, M, Minv = perspective_transform(combinedOutput, img)
+    combined_warped, M, Minv = perspective_transform(combinedOutput)
     
 
     # imshow("color_warped", color_warped*255)
@@ -598,10 +667,10 @@ def run(img_path):
         contour_warped = combined_warped.copy()
 
     plotHist(hist, "target")
-    vis_hist = fixedAspectRatioResize(
-        cv2.imread(os.path.join(TMP_DIR, 'hist_target.png')), desired_width=color_warped.shape[1])
-    if args.vis_mode:
-        imshow("vis_hist", vis_hist)
+    # vis_hist = fixedAspectRatioResize(
+    #     cv2.imread(os.path.join(TMP_DIR, 'hist_target.png')), desired_width=color_warped.shape[1])
+    # if args.vis_mode:
+    #     imshow("vis_hist", vis_hist)
     
     
     ### visualization hist ###
