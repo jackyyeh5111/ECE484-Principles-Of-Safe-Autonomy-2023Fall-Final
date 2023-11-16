@@ -23,7 +23,7 @@ parser.add_argument('--vis_sat', action='store_true')
 parser.add_argument('--append_str', '-a', type=str, default='tmp')
 parser.add_argument('--specified_name', '-s', type=str)
 parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
-parser.add_argument('--sat_thresh', type=str, default='60,255')
+# parser.add_argument('--sat_thresh', type=str, default='60,255')
 parser.add_argument('--sat_cdf_lower_thres', type=float, default=0.5)
 # parser.add_argument('--val_thresh', type=str, default='80,255')
 # parser.add_argument('--val_thres_offset', type=int, default=20)
@@ -36,10 +36,10 @@ parser.add_argument('--hist_y_begin', type=int, default=30)
 parser.add_argument('--perspective_pts', '-p',
                     type=str, default='218,467,348,0')
 parser.add_argument('--base_algo', type=str, required=True)
+parser.add_argument('--input_dir', '-i', type=str, default='/Users/jackyyeh/Desktop/Courses/UIUC/ECE484-Principles-Of-Safe-Autonomy/ECE484-Principles-Of-Safe-Autonomy-2023Fall-Final/f1tenth_ros1_ws/src/frames')
 
 args = parser.parse_args()
 
-TEST_DIR = '/Users/jackyyeh/Desktop/Courses/UIUC/ECE484-Principles-Of-Safe-Autonomy/ECE484-Principles-Of-Safe-Autonomy-2023Fall-Final/f1tenth_ros1_ws/src/frames'
 TMP_DIR = './vis_{}'.format(args.append_str)
 grad_thres_min, grad_thres_max = args.gradient_thresh.split(',')
 grad_thres_min, grad_thres_max = int(grad_thres_min), int(grad_thres_max)
@@ -49,8 +49,8 @@ assert grad_thres_min < grad_thres_max
 # val_thres_min, val_thres_max = int(val_thres_min), int(val_thres_max)
 # assert val_thres_min < val_thres_max
 
-sat_thres_min, sat_thres_max = args.sat_thresh.split(',')
-sat_thres_min, sat_thres_max = int(sat_thres_min), int(sat_thres_max)
+# sat_thres_min, sat_thres_max = args.sat_thresh.split(',')
+# sat_thres_min, sat_thres_max = int(sat_thres_min), int(sat_thres_max)
 
 hue_thres_min, hue_thres_max = args.hue_thresh.split(',')
 hue_thres_min, hue_thres_max = int(hue_thres_min), int(hue_thres_max)
@@ -273,17 +273,15 @@ def vis_hls_hist(h, l, s):
     plt.savefig(os.path.join(TMP_DIR, 'hist_hls.png'))
     plt.clf()
 
-def color_thresh(img, val_thres):
+def color_thresh(img):
     """
     Convert RGB to HSL and threshold to binary image using S channel
     """
     # 1. Convert the image from RGB to HSL
     # 2. Apply threshold on S channel to get binary image
-    # Hint: threshold on H to remove green grass
-    hls_img = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
-    # gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    gray_img = img[:, :, 2] # red channel
 
+    hls_img = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
+    
     # For HSL
     # ref: https://docs.opencv.org/3.4/de/d25/imgproc_color_conversions.html#color_convert_rgb_hls
     #   image format: (8-bit images) V ← 255⋅V, S ← 255⋅S, H ← H/2(to fit to 0 to 255)
@@ -302,11 +300,22 @@ def color_thresh(img, val_thres):
     bin_idxs = \
         np.where((cdf_normalized > args.sat_cdf_lower_thres) & (cdf_normalized < 0.95))[0]
     sat_thres_min = np.argmin( [sat_hist[idx] for idx in bin_idxs] ) + bin_idxs[0]
-    
-    # Use gray image instead of L channel of HLS (their images are different!)
     sat_cond = ((sat_thres_min <= s) & (s <= 255))
-    val_cond = (val_thres <= gray_img)
+    
+    
+    # Steps 2: Apply value threshold on image
+    # Use red channel of raw_image instead of l channel to do the value filtering
+    # Because red channel for yellow lane is much different from background
+    red_channel = img[:, :, 2] # red channel
+    red_channel_warped, M, Minv = perspective_transform(red_channel)
+    val_thres_min = np.percentile(red_channel_warped, args.val_thres_percentile)
+    # val_mean = np.mean(red_channel_warped)
+    val_cond = (val_thres_min <= red_channel) & (red_channel <= 255)
+
+    # Step 3: Apply predefined hue threshold on image
     hue_cond = (hue_thres_min <= h) & (h <= hue_thres_max)
+    
+    # combine conditions and get final output
     binary_output[val_cond & sat_cond & hue_cond] = 1
 
     ### visualization three channels result ###
@@ -316,16 +325,16 @@ def color_thresh(img, val_thres):
         hist_hls = fixedAspectRatioResize(hist_hls, desired_width=hist_hls.shape[1]*3)
         imshow("hist_hls.png", hist_hls)
         
-    # vis = cv2.hstack()
-    # vis = np.zeros_like(l)
-    # vis[sat_cond] = 255
-    # imshow("sat", vis)
-    # vis = np.zeros_like(l)
-    # vis[val_cond] = 255
-    # imshow("val", vis)
-    # vis = np.zeros_like(l)
-    # vis[hue_cond] = 255
-    # imshow("hue", vis)
+        vis_h = np.zeros_like(img)
+        vis_s = np.zeros_like(img)
+        vis_l = np.zeros_like(img)
+        vis_h[hue_cond] = 255
+        putText(vis_h, "hue result")
+        vis_s[sat_cond] = 255
+        putText(vis_s, "sat result")
+        vis_l[val_cond] = 255
+        putText(vis_l, "val result")
+        imshow("hls result", np.hstack([img, vis_h, vis_s, vis_l]))
     
     ### visualization for hue testing ###
     if args.vis_sat:
@@ -493,7 +502,7 @@ def drawCurvature(color_warped, x_arr, coeffs, thickness=10):
     return curve
 
 
-def line_fit(binary_warped, histogram, raw_img_warped):
+def line_fit(binary_warped):
     """
     Find and fit lane lines
     """
@@ -625,25 +634,15 @@ def getHistogram(binary_warped):
     histogram = np.sum(binary_warped[-args.hist_y_begin:, :], axis=0)
     return histogram
 
-def run(img_path):
+def run(img_path, fail_paths):
     global img_name
     img_name = img_path.strip('.png').split('/')[-1]
     print("img_path:", img_path)
 
     img = cv2.imread(img_path)
-    # gray_img = cv2.imread(img_path, 0)
-    gray_img = img[:, :, 2] # red channel
-    gray_img_warped, M, Minv = perspective_transform(gray_img)
-    
-    # val_mean = np.mean(gray_img_warped)
-    val_thres = np.percentile(gray_img_warped, args.val_thres_percentile)
-    print ("mean:", val_thres)
-    if args.vis_mode:
-        imshow("gray_img_warped", gray_img_warped)
-    
     
     SobelOutput = gradient_thresh(img)
-    ColorOutput = color_thresh(img, val_thres)
+    ColorOutput = color_thresh(img)
     combinedOutput = combinedBinaryImage(SobelOutput, ColorOutput)
     sobel_warped, M, Minv = perspective_transform(SobelOutput)
     color_warped, M, Minv = perspective_transform(ColorOutput)
@@ -696,11 +695,12 @@ def run(img_path):
     #     imshow("vis_color", vis_color)
     #     imshow("vis_combined", vis_combined)
     
-    ret = line_fit(color_warped, hist, gray_img_warped)
+    ret = line_fit(color_warped)
     # ret = line_fit(contour_warped, hist, gray_img_warped)
     if ret is None:
+        fail_paths.append(img_path)
         print ("Fail to fit line")
-        exit(1)
+        return
     
     def get_waypoints(ret, width, height, look_ahead_dist = 1.0):
         lanex = ret['lanex']
@@ -743,16 +743,21 @@ if __name__ == '__main__':
     with open(os.path.join(TMP_DIR, 'a_params.txt'), 'w') as f:
         f.write('\n'.join(params))
 
+    fail_paths = []
     if args.specified_name:
-        img_path = os.path.join(TEST_DIR, '{}.png'.format(args.specified_name))
-        run(img_path)
+        img_path = os.path.join(args.input_dir, '{}.png'.format(args.specified_name))
+        run(img_path, fail_paths)
     else:
-        paths = sorted(os.listdir(TEST_DIR))
+        paths = sorted(os.listdir(args.input_dir))
         for i, path in enumerate(paths):
             if i == args.num_samples:
                 break
             if not path.endswith('png'):
                 continue
 
-            img_path = os.path.join(TEST_DIR, path)
-            run(img_path)
+            img_path = os.path.join(args.input_dir, path)
+            run(img_path, fail_paths)
+
+    print ("\n ----- {} failed images -----".format(len(fail_paths)))
+    for i, path in enumerate(fail_paths):
+        print ('{}. {}'.format(i+1, path))
