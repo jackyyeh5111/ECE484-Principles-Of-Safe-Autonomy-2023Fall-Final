@@ -26,7 +26,7 @@ parser.add_argument("--online", action="store_true")
 
 args = parser.parse_args()
 
-OUTPUT_DIR = 'debug_results'
+OUTPUT_DIR = 'debug_results/debug_results_new'
 
 ctrl_params = [
     'steering_k: {}'.format(args.steering_k),
@@ -89,10 +89,14 @@ def get_output_img(raw_img, vis_warped, ctrl_msgs, way_pts):
         
     return concat
 
-def run_offline(img_path, lane_detector, controller):
+def run_offline(img_path, lane_detector, controller, fail_paths):
         img_name = img_path.split('/')[-1]
         raw_img = cv2.imread(img_path)
-        vis_warped, color_warped, way_pts = lane_detector.detection(raw_img)
+        ret_lane = lane_detector.detection(raw_img)
+        if ret_lane is None:
+            fail_paths.append(img_path)
+            return
+        vis_warped, color_warped, way_pts = ret_lane
         ctrl_msgs = controller.run(way_pts)
 
         out_img = get_output_img(raw_img, vis_warped, ctrl_msgs, way_pts)
@@ -148,11 +152,12 @@ def main():
         while not rospy.is_shutdown():
             rate.sleep()  # Wait a while before trying to get a new waypoints
     else:
+        fail_paths = []
         if args.specified_name:
             img_path = os.path.join(
                 args.input_dir, '{}.png'.format(args.specified_name))
             print ('img_path:', img_path)
-            run_offline(img_path, lane_detector, controller)
+            run_offline(img_path, lane_detector, controller, fail_paths)
         else:
             paths = sorted(os.listdir(args.input_dir))
             for i, img_path in enumerate(paths):
@@ -163,7 +168,11 @@ def main():
                 
                 img_path = os.path.join(args.input_dir, img_path)
                 print ('img_path:', img_path)
-                run_offline(img_path, lane_detector, controller)
-
+                run_offline(img_path, lane_detector, controller, fail_paths)
+        
+        print ("\n ----- {} failed images -----".format(len(fail_paths)))
+        for i, path in enumerate(fail_paths):
+            print ('{}. {}'.format(i+1, path))
+            
 if __name__ == '__main__':
     main()

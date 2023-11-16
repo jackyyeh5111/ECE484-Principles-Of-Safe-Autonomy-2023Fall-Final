@@ -14,13 +14,14 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--output_dir', '-o', type=str, default='')
 parser.add_argument('--output_freq', type=int, default=3)
 parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
-parser.add_argument('--sat_thresh', type=str, default='60,255')
+# parser.add_argument('--sat_thresh', type=str, default='60,255')
+parser.add_argument('--sat_cdf_lower_thres', type=float, default=0.5)
 parser.add_argument('--val_thres_percentile', type=int, default=65)
 parser.add_argument('--hue_thresh', type=str, default='15,40')
 parser.add_argument('--dilate_size', type=int, default=5)
-parser.add_argument('--hist_y_begin', type=int, default=30)
 parser.add_argument('--perspective_pts', '-p',
                     type=str, default='218,467,348,0')
+parser.add_argument('--window_height', type=int, default=20)
 
 # controller arguments
 parser.add_argument('--steering_k', type=float, default=0.6)

@@ -6,13 +6,10 @@ import rospy
 import os
 import pathlib
 
-from line_fit import line_fit, line_fit_right
-from Line import Line
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
 from cv_bridge import CvBridge, CvBridgeError
 from std_msgs.msg import Float32
-# from skimage import morphology
 
 import argparse
 
@@ -40,13 +37,9 @@ class LaneDetector():
             
     def parse_params(self, args):
         # parse params
-        self.grad_thres_min, self.grad_thres_max = args.gradient_thresh.split(',')
-        self.grad_thres_min, self.grad_thres_max = int(self.grad_thres_min), int(self.grad_thres_max)
-        assert self.grad_thres_min < self.grad_thres_max
-
-        self.sat_thres_min, self.sat_thres_max = args.sat_thresh.split(',')
-        self.sat_thres_min, self.sat_thres_max = int(self.sat_thres_min), int(self.sat_thres_max)
-        assert self.sat_thres_min < self.sat_thres_max
+        # self.sat_thres_min, self.sat_thres_max = args.sat_thresh.split(',')
+        # self.sat_thres_min, self.sat_thres_max = int(self.sat_thres_min), int(self.sat_thres_max)
+        # assert self.sat_thres_min < self.sat_thres_max
 
         self.hue_thres_min, self.hue_thres_max = args.hue_thresh.split(',')
         self.hue_thres_min, self.hue_thres_max = int(self.hue_thres_min), int(self.hue_thres_max)
@@ -58,7 +51,8 @@ class LaneDetector():
         
         self.val_thres_percentile = args.val_thres_percentile
         self.dilate_size = args.dilate_size
-        self.hist_y_begin = args.hist_y_begin
+        self.sat_cdf_lower_thres = args.sat_cdf_lower_thres
+        self.window_height = args.window_height
         
     def img_callback(self, data):
 
@@ -92,52 +86,123 @@ class LaneDetector():
             self.pub_image.publish(out_img_msg)
             self.pub_bird.publish(out_bird_msg)
 
-    def gradient_thresh(self, img):
+    def line_fit(self, binary_warped):
         """
-        Apply sobel edge detection on input image in x, y direction
+        Find and fit lane lines
         """
-        # 1. Convert the image to gray scale
-        # 2. Gaussian blur the image
-        # 3. Use cv2.Sobel() to find derievatives for both X and Y Axis
-        # 4. Use cv2.addWeighted() to combine the results
-        # 5. Convert each pixel to uint8, then apply threshold to get binary image
+        ### 1. sliding window to find the base point
+        height, width = binary_warped.shape
+        nwindows = 15
+        sliding_offset = 5
+        margin = 70
+        best_base_x = -1
+        best_num_pixels = 0
+        
+        for basex in range(margin, width-margin, sliding_offset):
+            left = basex - margin
+            right = basex + margin
+            total_num_pixels = cv2.countNonZero(
+                binary_warped[-self.window_height:, left:right])
+            
+            if total_num_pixels > best_num_pixels:
+                best_num_pixels = total_num_pixels
+                best_base_x = basex
+        
+        if best_base_x == -1:
+            return None
+        
+        # visualize
+        # vis = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
+        # vis = cv2.rectangle(
+        #     vis, (best_base_x - margin, height - self.window_height), 
+        #     (best_base_x + margin, height), 
+        #     (0, 0, 255))
+        # imshow("vis", vis)
 
-        # Step 1: Load the image and convert it to grayscale
-        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # Identify the x and y positions of all nonzero pixels in the image
+        nonzero = binary_warped.nonzero()
+        nonzeroy = np.array(nonzero[0])
+        nonzerox = np.array(nonzero[1])
+    
+        # Set minimum number of pixels found to recenter window
+        minpix = 200
+        
+        # Step through the windows one by one
+        color_warped = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
+        color_warped[color_warped > 0] = 255
+            
+        basex = best_base_x
+        lane_pts = []
+        prev_basex_list = []
+        for i in range(nwindows):
+            win_top = height - (i + 1) * self.window_height
+            win_bottom = win_top + self.window_height
+            
+            # adjust basex based on the slope of previous two basex
+            if i >= 2:
+                slope = prev_basex_list[-1] - prev_basex_list[-2]
+                basex = prev_basex_list[-1] + slope
+                
+            window_inds = np.where((nonzerox > basex - margin) &
+                                (nonzerox < basex + margin) &
+                                (nonzeroy > win_top) &
+                                (nonzeroy < win_bottom))
+            window_nonzerox = nonzerox[window_inds]
+            window_nonzeroy = nonzeroy[window_inds]
+            # print (len(window_nonzerox))
+            
+            # finish fitting condition
+            reach_boundary = basex - margin < 0 or \
+                            basex + margin >= width or \
+                            win_top < 0
+            if reach_boundary or len(window_nonzerox) < minpix:
+                break
+            
+            # correct basex by average and use average (x, y) as way points
+            basex = int(np.mean(window_nonzerox))
+            basey = int(np.mean(window_nonzeroy))
+            lane_pts.append([basex, basey])
+            prev_basex_list.append(basex)
+                
+            # visualization
+            color_warped = cv2.rectangle(
+                color_warped, (basex - margin, win_top), (basex +margin, win_bottom), (0, 0, 255))
+            # imshow("color_warped", color_warped)
+        
+        lanex = [pt[0] for pt in lane_pts]
+        laney = [pt[1] for pt in lane_pts]
+        try:
+            lane_fit = np.polyfit(laney, lanex, deg=2)
+            
+            ### vis lane points ###
+            for x, y in zip(lanex, laney):
+                color_warped = cv2.circle(color_warped, (x, y), 2, (0,255, 0), -1)
+                
+            ### vis points nonzero ###
+            # for x, y in zip(rightx, righty):
+            #     color_warped = cv2.circle(color_warped, (x, y), 1, (0,255, 0), -1)
+            # imshow("points", color_warped )
 
-        # Step 2: Apply Gaussian blur to the grayscale image
-        blurred_image = cv2.GaussianBlur(gray_img, (5, 5), 0)
+        except TypeError:
+            print("Unable to detect lanes")
+            return None
 
-        # Step 3: Use cv2.Sobel() to find derivatives for both X and Y axes
-        sobel_x = cv2.Sobel(blurred_image, cv2.CV_64F, 1, 0, ksize=3)
-        sobel_y = cv2.Sobel(blurred_image, cv2.CV_64F, 0, 1, ksize=3)
-
-        # Step 4: Combine the results using cv2.addWeighted()
-        sobel_combined = cv2.addWeighted(np.absolute(
-            sobel_x), 0.5, np.absolute(sobel_y), 0.5, 0)
-
-        # Step 5: Convert each pixel to uint8 and apply a threshold to get a binary image
-        sobel_combined = np.uint8(sobel_combined)
-        binary_output = np.zeros_like(sobel_combined)
-        binary_output[(self.thresh_min < sobel_combined) &
-                      (sobel_combined < self.thresh_max)] = 1
-
-        # vis
-        # vis = cv2.cvtColor(binary_output*255, cv2.COLOR_GRAY2BGR)
-        # imshow("binary_output", cv2.hconcat([img, vis]))
-
-        return binary_output
-
-    def color_thresh(self, img, val_thres):
+        ret = {}
+        ret['vis_warped'] = color_warped
+        ret['lane_fit'] = lane_fit
+        ret['lanex'] = lanex
+        ret['laney'] = laney
+        return ret
+    
+    def color_thresh(self, img):
         """
         Convert RGB to HSL and threshold to binary image using S channel
         """
         # 1. Convert the image from RGB to HSL
         # 2. Apply threshold on S channel to get binary image
-        # Hint: threshold on H to remove green grass
-        hls_img = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
-        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
+        hls_img = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
+        
         # For HSL
         # ref: https://docs.opencv.org/3.4/de/d25/imgproc_color_conversions.html#color_convert_rgb_hls
         #   image format: (8-bit images) V ← 255⋅V, S ← 255⋅S, H ← H/2(to fit to 0 to 255)
@@ -145,44 +210,41 @@ class LaneDetector():
         # Step 2: Apply threshold on the S (Saturation) channel to get a binary image
         h, l, s = cv2.split(hls_img)
         binary_output = np.zeros_like(l)
-        sat_cond = ((self.sat_thres_min <= s) & (s <= self.sat_thres_max))
         
-        # Use gray image instead of L channel of HLS (their images are different!)
-        val_cond = (val_thres <= gray_img)
+        # dynamic search sat_thres_min
+        s_warped, M, Minv = self.perspective_transform(s)
+        sat_hist, bins = np.histogram(s_warped.flatten(), bins=256, range=[0, 256])
+
+        # Calculate the cumulative distribution function (CDF) of the histogram
+        cdf = sat_hist.cumsum()
+        cdf_normalized = cdf / cdf.max() # Normalize the CDF to the range [0, 1]
+        bin_idxs = \
+            np.where((cdf_normalized > self.sat_cdf_lower_thres) & (cdf_normalized < 0.95))[0]
+        sat_thres_min = np.argmin( [sat_hist[idx] for idx in bin_idxs] ) + bin_idxs[0]
+        sat_cond = ((sat_thres_min <= s) & (s <= 255))
+        
+        
+        # Steps 2: Apply value threshold on image
+        # Use red channel of raw_image instead of l channel to do the value filtering
+        # Because red channel for yellow lane is much different from background
+        red_channel = img[:, :, 2] # red channel
+        red_channel_warped, M, Minv = self.perspective_transform(red_channel)
+        val_thres_min = np.percentile(red_channel_warped, self.val_thres_percentile)
+        # val_mean = np.mean(red_channel_warped)
+        val_cond = (val_thres_min <= red_channel) & (red_channel <= 255)
+
+        # Step 3: Apply predefined hue threshold on image
         hue_cond = (self.hue_thres_min <= h) & (h <= self.hue_thres_max)
         
+        # combine conditions and get final output
         binary_output[val_cond & sat_cond & hue_cond] = 1
-        
+
         # closing
-        kernel = np.ones((5, 5), np.uint8)
+        kernel = np.ones((self.dilate_size, self.dilate_size), np.uint8)
         binary_output = cv2.morphologyEx(
             binary_output.astype(np.uint8), cv2.MORPH_CLOSE, kernel)
 
         return binary_output
-
-    def combinedBinaryImage(self, img):
-        """
-        Get combined binary image from color filter and sobel filter
-        """
-        # 1. Apply sobel filter and color filter on input image
-        # 2. Combine the outputs
-        # Here you can use as many methods as you want.
-
-        SobelOutput = self.gradient_thresh(img)
-        ColorOutput = self.color_thresh(img)
-
-        kernel = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (args.dilate_size, args.dilate_size))
-        ColorOutput = cv2.dilate(ColorOutput, kernel, iterations=1)
-        
-        binaryImage = np.zeros_like(SobelOutput)
-        binaryImage[(ColorOutput == 1)] = 1
-        # binaryImage[(ColorOutput == 1) & (SobelOutput == 1)] = 1
-
-        # Remove noise from binary image
-        # binaryImage = morphology.remove_small_objects(binaryImage.astype('bool'),min_size=50,connectivity=2)
-
-        return binaryImage
 
     def perspective_transform(self, img, verbose=False):
         """
@@ -223,19 +285,6 @@ class LaneDetector():
 
         return warped_img, M, Minv
 
-    def findContourForColor(self, color_warped):
-        # Find the contours for color (ideeally two contours along the trajectory)
-        contours, _ = cv2.findContours(
-            color_warped, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        contour_canvas = np.zeros_like(color_warped)
-        cv2.drawContours(contour_canvas, contours, -1, 1, 1)
-
-        # remove contours along the image border
-        contour_canvas[-5:, :] = 0
-        contour_canvas[:5, :] = 0
-
-        return contour_canvas
-
     def get_latest_waypoints(self):
         return self.way_pts
     
@@ -260,21 +309,12 @@ class LaneDetector():
                 self.way_pts = way_pts
         
     def detection(self, img):
-
-        # get dynamic value thres
-        gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        gray_img_warped, M, Minv = self.perspective_transform(gray_img)
-        val_thres = np.percentile(gray_img_warped, self.val_thres_percentile)
-        
         # use color_thresh result only
-        color_output = self.color_thresh(img, val_thres)
+        color_output = self.color_thresh(img)
         color_warped, M, Minv = self.perspective_transform(color_output)
-        contour_warped = self.findContourForColor(color_warped)
         
         # line fit
-        hist = np.sum(contour_warped[-self.hist_y_begin:, :], axis=0)
-        # ret = line_fit(contour_warped, hist, gray_img_warped)
-        ret = line_fit_right(contour_warped, hist, gray_img_warped)
+        ret = self.line_fit(color_warped)
         if ret is None:
             return
             
