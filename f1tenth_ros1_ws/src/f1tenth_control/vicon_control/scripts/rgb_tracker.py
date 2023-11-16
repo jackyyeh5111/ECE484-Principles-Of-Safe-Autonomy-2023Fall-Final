@@ -7,6 +7,8 @@ import rospy
 from vicon_tracker_pp import F1tenth_controller
 from lane_detector import LaneDetector
 import argparse
+import pathlib
+import os
 
 parser = argparse.ArgumentParser()
 
@@ -36,9 +38,19 @@ parser.add_argument('--look_ahead', type=float, default=1.0)
 def main():
     args = parser.parse_args()
     print ('======= Initial arguments =======')
+    params = []
     for key, val in vars(args).items():
-        print (f"{key} => {val}")
-    
+        param = f"{key} => {val}"
+        print(param)
+        params.append(param)
+
+    # save params for debug
+    if args.output_dir != '':
+        OUTPUT_DIR = os.path.join('test_images', args.output_dir)
+        pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)  
+        with open(os.path.join(OUTPUT_DIR, 'params.txt'), 'w') as f:
+            f.write('\n'.join(params))
+
     assert args.curv_min <= args.curv_max
     assert args.vel_min <= args.vel_max
     
