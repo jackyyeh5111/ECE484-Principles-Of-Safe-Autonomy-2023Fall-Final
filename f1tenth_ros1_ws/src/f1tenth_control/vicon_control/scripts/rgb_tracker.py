@@ -11,6 +11,8 @@ import argparse
 parser = argparse.ArgumentParser()
 
 # lane detector arguments
+parser.add_argument('--output_dir', '-o', type=str, default='')
+parser.add_argument('--output_freq', type=int, default=3)
 parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
 parser.add_argument('--sat_thresh', type=str, default='60,255')
 parser.add_argument('--val_thres_percentile', type=int, default=65)
@@ -36,8 +38,8 @@ def main():
     for key, val in vars(args).items():
         print (f"{key} => {val}")
     
-    assert args.curv_min < args.curv_max
-    assert args.vel_min < args.vel_max
+    assert args.curv_min <= args.curv_max
+    assert args.vel_min <= args.vel_max
     
     rospy.init_node('rgb_track_node', anonymous=True)
     rate = rospy.Rate(30)  # Hz

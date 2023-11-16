@@ -25,8 +25,11 @@ class LaneDetector():
     def __init__(self, args, debug_mode=False):
         self.parse_params(args)
         self.debug_mode = debug_mode
+        self.output_dir = args.output_dir
+        self.output_freq = args.output_freq
         
         self.way_pts = []
+        self.cnt = 0
         if not self.debug_mode:
             self.bridge = CvBridge()
             self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback, queue_size=1)
@@ -72,6 +75,14 @@ class LaneDetector():
 
         print("Detection takes time: {:.3f} seconds".format(time.time() - start_time))
 
+        self.cnt += 1
+        OUTPUT_DIR = os.path.join('test_images', self.output_dir)
+        pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+        if self.output_dir != '' and self.cnt % self.output_freq == 0:
+            output_path = '{}/{}.png'.format(OUTPUT_DIR, self.cnt)
+            print ('output to {}'.format(output_path))
+            cv2.imwrite(output_path, raw_img)
+            
         if mask_image is not None and bird_image is not None:
             # Convert an OpenCV image into a ROS image message
             out_img_msg = self.bridge.cv2_to_imgmsg(mask_image, 'bgr8')
