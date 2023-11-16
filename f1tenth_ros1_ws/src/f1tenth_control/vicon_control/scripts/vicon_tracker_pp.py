@@ -18,11 +18,11 @@ class F1tenth_controller(object):
         self.vel_min = args.vel_min
         self.vel_max = args.vel_max
         self.look_ahead = args.look_ahead
+        self.kp = args.kp
+        self.kd = args.kd
+        self.ki = args.ki
         self.wheelbase = 0.325
         self.debug_mode = debug_mode
-        self.kp = 1.5
-        self.kd = 0.05
-        self.ki = 0.0
         self.prev_error = 0.0 
         self.integral = 0.0
         self.dt = 0.03
@@ -131,12 +131,13 @@ class F1tenth_controller(object):
         # angle = np.arctan2((self.steering_k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
         # target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
         # target_steering_deg = round(np.degrees(target_steering))
+        
         alpha = np.arctan2(self.goal_y, self.goal_x)
         
-        ct_error =  0.5925 - self.targ_pts[0][0]  
-        pid_ang = self.kp*ct_error + self.kd * ((ct_error-self.prev_error)/self.dt)
+        ct_error = self.targ_pts[0][1]  
+        pid_ang = self.kp*ct_error + self.kd*((ct_error-self.prev_error)/self.dt)
         self.prev_error = ct_error
-        angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1) - pid_ang
+        angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1) + pid_ang
         target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
         target_steering_deg = round(np.degrees(target_steering))
         
@@ -174,13 +175,21 @@ class F1tenth_controller(object):
             self.ctrl_pub.publish(self.drive_msg)
         
         msgs = [
-            "lookahead: {:.3f}".format(ld),
+            "first waypt: ({:.2f}, {:.2f})".format(self.targ_pts[0][0], self.targ_pts[0][1]),
+            "lookahead_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y),
             "ct_error: {:.3f}".format(ct_error),
             "steering(deg): {}".format(target_steering_deg),
+            "pid_ang: {:.2f}".format(pid_ang),
             "curvature: {:.3f}".format(curvature),
             "target_vel: {:.2f}".format(target_velocity),
-            "steer_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y)
         ]
+        # msgs = [
+        #     "first waypt: ({:.2f}, {:.2f})".format(self.targ_pts[0][0], self.targ_pts[0][1]),
+        #     "ld_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y),
+        #     "ct_error: {:.3f}".format(ct_error),
+        #     "pid_ang: {:.2f}".format(pid_ang),
+        #     "target_steering_deg: {:.2f}".format(target_steering_deg),
+        # ]
         
         # print msgs
         print ('\n----- control msgs -----')
