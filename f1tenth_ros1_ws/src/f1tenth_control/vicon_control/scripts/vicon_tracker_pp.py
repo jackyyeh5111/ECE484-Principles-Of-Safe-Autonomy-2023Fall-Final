@@ -20,6 +20,12 @@ class F1tenth_controller(object):
         self.look_ahead = args.look_ahead
         self.wheelbase = 0.325
         self.debug_mode = debug_mode
+        self.kp = 1.5
+        self.kd = 0.05
+        self.ki = 0.0
+        self.prev_error = 0.0 
+        self.integral = 0.0
+        self.dt = 0.03
         
         if not debug_mode:
             self.rate = rospy.Rate(30)  # Hz
@@ -121,8 +127,16 @@ class F1tenth_controller(object):
         ld = np.hypot(self.goal_x, self.goal_y)
         
         # find target steering angle (tuning this part as needed)
+        # alpha = np.arctan2(self.goal_y, self.goal_x)
+        # angle = np.arctan2((self.steering_k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
+        # target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
+        # target_steering_deg = round(np.degrees(target_steering))
         alpha = np.arctan2(self.goal_y, self.goal_x)
-        angle = np.arctan2((self.steering_k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
+        
+        ct_error =  0.5925 - self.targ_pts[0][0]  
+        pid_ang = self.kp*ct_error + self.kd * ((ct_error-self.prev_error)/self.dt)
+        self.prev_error = ct_error
+        angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1) - pid_ang
         target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
         target_steering_deg = round(np.degrees(target_steering))
         
@@ -152,8 +166,6 @@ class F1tenth_controller(object):
         steering_limit = 60
         if target_steering >= np.radians(steering_limit):
             target_velocity = self.vel_min
-        
-        ct_error = round(np.sin(alpha) * ld, 3)
         
         if not self.debug_mode:
             self.drive_msg.header.stamp = rospy.get_rostime()
