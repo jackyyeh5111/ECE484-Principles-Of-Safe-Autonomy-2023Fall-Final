@@ -236,7 +236,8 @@ def color_thresh(img, val_thres):
     # 2. Apply threshold on S channel to get binary image
     # Hint: threshold on H to remove green grass
     hls_img = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
-    gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    # gray_img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray_img = img[:, :, 2] # red channel
 
     # For HSL
     # ref: https://docs.opencv.org/3.4/de/d25/imgproc_color_conversions.html#color_convert_rgb_hls
@@ -425,14 +426,7 @@ def line_fit(binary_warped, histogram, raw_img_warped):
     """
     Find and fit lane lines
     """
-    # Assuming you have created a warped binary image called "binary_warped"
-    # Take a histogram of the bottom half of the image
-
-    # Create an output image to draw on and visualize the result
-    out_img = (np.dstack((binary_warped, binary_warped,
-               binary_warped))*255).astype('uint8')
-
-    # # sliding window
+    ### 1. sliding window to find the base point
     height, width = binary_warped.shape
     sliding_offset = 5
     margin = 30
@@ -464,76 +458,10 @@ def line_fit(binary_warped, histogram, raw_img_warped):
     blurred_img = cv2.GaussianBlur(raw_img_warped, (5, 5), 0)
     sobel_x = cv2.Sobel(blurred_img, cv2.CV_64F, 1, 0, ksize=3)
 
-    # sliding window
-    # height, width = binary_warped.shape
-    # sliding_offset = 5
-    # window_width = 180
-    # diff_grad_thres = 50
-    # diff_xdistance_thres = 90
-    # window_height = 20
-
-    
-    # def getSidePoints(y):
-    #     max_num_pixel = -1
-    #     base_leftx = -1
-    #     base_rightx = -1
-    #     is_success = False
-
-    #     # image border contains gradient noise, so +-10 pixels here
-    #     for start_x in range(10, width-10, sliding_offset):
-    #         end_x = start_x + window_width
-    #         grads = sobel_x[y, start_x:end_x]
-
-    #         min_grad, max_grad, min_loc, max_loc = cv2.minMaxLoc(grads)
-            
-    #         min_loc = np.argmin(grads[:window_width]) # left part
-    #         min_loc = np.argmax(grads[-window_width:]) # right part
-            
-    #         min_loc = min_loc[1] + start_x
-    #         max_loc = max_loc[1] + start_x
-    #         diff_grad = max_grad - min_grad
-    #         diff_xdistance = max_loc - min_loc
-
-    #         num_pixel = np.count_nonzero(binary_warped[y, start_x:end_x])
-
-    #         ### visualize box ###
-    #         print ('----------')
-    #         print ("min loc:{} min_grad:".format(min_loc), min_grad)
-    #         print ("max loc:{} max_grad:".format(max_loc), max_grad)
-    #         print ("diff_xdistance:", diff_xdistance)
-    #         print ("num_pixel:", num_pixel)
-    #         # vis = cv2.cvtColor(binary_warped*255, cv2.COLOR_GRAY2BGR)
-    #         if num_pixel > max_num_pixel and \
-    #                 diff_xdistance > diff_xdistance_thres and \
-    #                 diff_grad > diff_grad_thres:
-    #             base_leftx = max_loc
-    #             base_rightx = min_loc
-    #             max_num_pixel = num_pixel
-    #             is_success = True
-    #             # print ('----------')
-    #             # print ("min loc:{} min_grad:".format(min_loc), min_grad)
-    #             # print ("max loc:{} max_grad:".format(max_loc), max_grad)
-    #             # print ("num_pixel:", num_pixel)
-
-    #             # vis = img.copy()
-    #             # vis = cv2.rectangle(
-    #             #     vis, (start_x, y), (start_x + window_width, y), (0, 0, 255))
-    #             # imshow("vis", vis)
-
-    #     return is_success, base_leftx, base_rightx
-
     window_height = 20
     nwindows = 15
-    # nwindows = height // window_height
-
-    # visualization base
-
-    # Find the peak of the left and right halves of the histogram
-    # These will be the starting point for the left and right lines
-    # midpoint = int(histogram.shape[0]/2)
-    # leftx_base = np.argmax(histogram[100:midpoint]) + 100
-    # rightx_base = np.argmax(histogram[midpoint:-100]) + midpoint
     
+    ### 2. correct base point
     leftx_base = np.argmax(histogram[best_left_base_x-margin:best_left_base_x+margin]) + best_left_base_x-margin
     rightx_base = np.argmax(histogram[best_right_base_x-margin:best_right_base_x+margin]) + best_right_base_x-margin
     # rightx_base = np.argmax(histogram[best_base_x:best_base_x+margin]) + best_base_x
@@ -658,7 +586,8 @@ def run(img_path):
     print("img_path:", img_path)
 
     img = cv2.imread(img_path)
-    gray_img = cv2.imread(img_path, 0)
+    # gray_img = cv2.imread(img_path, 0)
+    gray_img = img[:, :, 2] # red channel
     gray_img_warped, M, Minv = perspective_transform(gray_img, img)
     
     # val_mean = np.mean(gray_img_warped)
