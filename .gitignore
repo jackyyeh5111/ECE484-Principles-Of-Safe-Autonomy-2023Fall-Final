@@ -4,3 +4,17 @@ f1tenth_ros1_ws/src/reference/
 lanenet
 vis_*
 *.bag
+ECE484-Final_Project_Proposal-F1_05.pdf
+Lateral Position Detection Using a Vehicle-Mounted Camera.pdf
+VisionRace/
+f1tenth_ros1_ws/.vscode/
+f1tenth_ros1_ws/src/f1tenth_control/vicon_control/scripts/__pycache__/
+f1tenth_ros1_ws/src/f1tenth_control/vicon_control/scripts/debug_results/
+f1tenth_ros1_ws/src/f1tenth_control/vicon_control/scripts/test_images/
+f1tenth_ros1_ws/src/f1tenth_perception/__pycache__/
+f1tenth_ros1_ws/src/frames_karan/
+f1tenth_ros1_ws/src/test_frames/
+f1tenth_simulator/
+f1tenth_ros1_ws/src/f1tenth_perception/test_scripts/hue-test/
+f1tenth_ros1_ws/src/f1tenth_perception/test_scripts/legacy/
+f1tenth_ros1_ws/src/f1tenth_perception/test_scripts/sat-test/
