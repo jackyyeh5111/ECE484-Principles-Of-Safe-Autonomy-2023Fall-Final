@@ -14,20 +14,20 @@ import numpy as np
 from rgb_tracker import parser
 
 from sensor_msgs.msg import Image
-from std_msgs.msg import Header
 from cv_bridge import CvBridge, CvBridgeError
 
 # debug params
-parser.add_argument('--specified_name', '-s', type=str)
+parser.add_argument('--specified_name', '-s', type=str, help='Specify image name to debug.')
 parser.add_argument('--num_samples', '-n', type=int, default=-1,
                     help="-1 means check all files in the input folder")
 parser.add_argument('--input_dir', '-i', type=str, default='test_images')
-parser.add_argument("--online", action="store_true") 
+parser.add_argument("--use_rosbag", action="store_true") 
 
 args = parser.parse_args()
 
 OUTPUT_DIR = 'debug_results/debug_results_new'
 
+# ctrl_params displayed on results
 ctrl_params = [
     'steering_k: {}'.format(args.steering_k),
     'steering_i: {}'.format(args.steering_i),
@@ -89,7 +89,7 @@ def get_output_img(raw_img, vis_warped, ctrl_msgs, way_pts):
         
     return concat
 
-def run_offline(img_path, lane_detector, controller, fail_paths):
+def run_on_folder(img_path, lane_detector, controller, fail_paths):
         img_name = img_path.split('/')[-1]
         raw_img = cv2.imread(img_path)
         ret_lane = lane_detector.detection(raw_img)
@@ -144,7 +144,7 @@ def main():
 
     pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
     
-    if args.online:
+    if args.use_rosbag:
         rospy.init_node('rgb_track_node', anonymous=True)
         rate = rospy.Rate(30)  # Hz    
         print ('\nStart navigation...')
@@ -157,7 +157,7 @@ def main():
             img_path = os.path.join(
                 args.input_dir, '{}.png'.format(args.specified_name))
             print ('img_path:', img_path)
-            run_offline(img_path, lane_detector, controller, fail_paths)
+            run_on_folder(img_path, lane_detector, controller, fail_paths)
         else:
             paths = sorted(os.listdir(args.input_dir))
             for i, img_path in enumerate(paths):
@@ -168,7 +168,7 @@ def main():
                 
                 img_path = os.path.join(args.input_dir, img_path)
                 print ('img_path:', img_path)
-                run_offline(img_path, lane_detector, controller, fail_paths)
+                run_on_folder(img_path, lane_detector, controller, fail_paths)
         
         print ("\n ----- {} failed images -----".format(len(fail_paths)))
         for i, path in enumerate(fail_paths):

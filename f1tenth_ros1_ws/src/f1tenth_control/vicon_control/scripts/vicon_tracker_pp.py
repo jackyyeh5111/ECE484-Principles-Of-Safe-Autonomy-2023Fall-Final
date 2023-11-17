@@ -174,6 +174,7 @@ class F1tenth_controller(object):
             self.drive_msg.drive.speed = target_velocity
             self.ctrl_pub.publish(self.drive_msg)
         
+        # ctrl msgs displayed on results
         msgs = [
             "first waypt: ({:.2f}, {:.2f})".format(self.targ_pts[0][0], self.targ_pts[0][1]),
             "lookahead_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y),
