@@ -14,7 +14,7 @@ parser = argparse.ArgumentParser()
 
 # lane detector arguments
 parser.add_argument('--output_dir', '-o', type=str, default='')
-parser.add_argument('--output_freq', type=int, default=3)
+parser.add_argument('--output_freq', type=int, default=1)
 parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
 # parser.add_argument('--sat_thresh', type=str, default='60,255')
 parser.add_argument('--sat_cdf_lower_thres', type=float, default=0.5)
@@ -44,8 +44,8 @@ def main():
     print ('======= Initial arguments =======')
     params = []
     for key, val in vars(args).items():
-        param = f"{key} => {val}"
-        print(param)
+        param = f"--{key} {val}"
+        print(f"{key} => {val}")
         params.append(param)
 
     # save params for debug
@@ -53,7 +53,8 @@ def main():
         OUTPUT_DIR = os.path.join('test_images', args.output_dir)
         pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)  
         with open(os.path.join(OUTPUT_DIR, 'params.txt'), 'w') as f:
-            f.write('\n'.join(params))
+            commands = ['python debug_helper.py -i {}'.format(OUTPUT_DIR)] + params
+            f.write(' \\\n  '.join(commands))
 
     assert args.curv_min <= args.curv_max
     assert args.vel_min <= args.vel_max
