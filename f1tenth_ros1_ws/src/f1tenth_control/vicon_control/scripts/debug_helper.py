@@ -136,8 +136,8 @@ def main():
     for key, val in vars(args).items():
         print(f"{key} => {val}")
 
-    assert args.curv_min < args.curv_max
-    assert args.vel_min < args.vel_max
+    assert args.curv_min <= args.curv_max
+    assert args.vel_min <= args.vel_max
 
     lane_detector = LaneDetector(args, debug_mode=True)
     controller = F1tenth_controller(args, debug_mode=True)

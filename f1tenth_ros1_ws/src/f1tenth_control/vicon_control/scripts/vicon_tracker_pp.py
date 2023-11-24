@@ -134,11 +134,12 @@ class F1tenth_controller(object):
         
         alpha = np.arctan2(self.goal_y, self.goal_x)
         
+        # PID control
         ct_error = self.targ_pts[0][1]  
-        pid_ang = self.kp*ct_error + self.kd*((ct_error-self.prev_error)/self.dt)
+        pid_ang = self.kp * ct_error + self.kd * ((ct_error - self.prev_error) / self.dt)
         self.prev_error = ct_error
-        angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1) + pid_ang
-        target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
+        pp_angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1)
+        target_steering = round(np.clip(pp_angle + pid_ang, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
         target_steering_deg = round(np.degrees(target_steering))
         
         ## compute track curvature for longititudal control
@@ -180,17 +181,11 @@ class F1tenth_controller(object):
             "lookahead_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y),
             "ct_error: {:.3f}".format(ct_error),
             "steering(deg): {}".format(target_steering_deg),
+            "pp_angle: {:.2f}".format(pp_angle),
             "pid_ang: {:.2f}".format(pid_ang),
             "curvature: {:.3f}".format(curvature),
             "target_vel: {:.2f}".format(target_velocity),
         ]
-        # msgs = [
-        #     "first waypt: ({:.2f}, {:.2f})".format(self.targ_pts[0][0], self.targ_pts[0][1]),
-        #     "ld_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y),
-        #     "ct_error: {:.3f}".format(ct_error),
-        #     "pid_ang: {:.2f}".format(pid_ang),
-        #     "target_steering_deg: {:.2f}".format(target_steering_deg),
-        # ]
         
         # print msgs
         print ('\n----- control msgs -----')
