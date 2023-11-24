@@ -18,12 +18,14 @@ class F1tenth_controller(object):
         self.vel_min = args.vel_min
         self.vel_max = args.vel_max
         self.look_ahead = args.look_ahead
+        self.angle_diff_thres = args.angle_diff_thres
         self.kp = args.kp
         self.kd = args.kd
         self.ki = args.ki
         self.wheelbase = 0.325
         self.debug_mode = debug_mode
         self.prev_error = 0.0 
+        self.prev_steering = np.inf
         self.integral = 0.0
         self.dt = 0.03
         
@@ -169,11 +171,18 @@ class F1tenth_controller(object):
         if target_steering >= np.radians(steering_limit):
             target_velocity = self.vel_min
         
+        
         if not self.debug_mode:
-            self.drive_msg.header.stamp = rospy.get_rostime()
-            self.drive_msg.drive.steering_angle = target_steering
-            self.drive_msg.drive.speed = target_velocity
-            self.ctrl_pub.publish(self.drive_msg)
+            # In order to make car running smoother, publish control signal
+            # only when steering angle difference is large enough.
+            angle_diff = np.degrees(abs(target_steering - self.prev_steering))
+            if angle_diff > self.angle_diff_thres:
+                print('Publish control signal!!')
+                self.prev_steering = target_steering
+                self.drive_msg.header.stamp = rospy.get_rostime()
+                self.drive_msg.drive.steering_angle = target_steering
+                self.drive_msg.drive.speed = target_velocity
+                self.ctrl_pub.publish(self.drive_msg)
         
         # ctrl msgs displayed on results
         msgs = [
