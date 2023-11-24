@@ -31,6 +31,8 @@ parser.add_argument('--sat_cdf_lower_thres', type=float, default=0.5,
 # parser.add_argument('--val_thres_offset', type=int, default=20)
 parser.add_argument('--val_thres_percentile', type=int, default=65,
                     help='pixel values that are below this percentil will be assigned zero. This helps filtering by value')
+parser.add_argument('--val_reflection_thres', type=int, default=210,
+                    help='pixel values in blue channel that are above this thres will be assigned zero. This avoids strong reflection affects filtering result')
 parser.add_argument('--hue_thresh', type=str,
                     default='15,40', help='for hue filtering')
 parser.add_argument('--dilate_size', type=int, default=5,
@@ -182,7 +184,13 @@ def color_thresh(img):
     """
     Convert RGB to HSL and threshold to binary image
     """
-    # Step 1. Convert the image from RGB to HSL
+    
+    # Step 1: Filter out pixels with strong reflection
+    img = img.copy()
+    # blue_channel = img[:, :, 0]  # red channel
+    # img[blue_channel > args.val_reflection_thres] = 0
+
+    # Step 2. Convert the image from RGB to HSL
     # For HSL
     # ref: https://docs.opencv.org/3.4/de/d25/imgproc_color_conversions.html#color_convert_rgb_hls
     #   image format: (8-bit images) V ← 255⋅V, S ← 255⋅S, H ← H/2(to fit to 0 to 255)
@@ -190,7 +198,7 @@ def color_thresh(img):
     h, l, s = cv2.split(hls_img)
     binary_output = np.zeros_like(l)
 
-    # Step 2: Apply dynamic threshold on the S (Saturation) channel
+    # Step 3: Apply dynamic threshold on the S (Saturation) channel
     # Dynamically search saturation thres using saturation histogram of bird-eye image.
     s_warped, M, Minv = perspective_transform(s)
     sat_hist, bins = np.histogram(s_warped.flatten(), bins=256, range=[0, 256])
@@ -204,8 +212,14 @@ def color_thresh(img):
     sat_thres_min = np.argmin([sat_hist[idx]
                               for idx in bin_idxs]) + bin_idxs[0]
     sat_cond = ((sat_thres_min <= s) & (s <= 255))
+    
+    # for debug
+    # print (bin_idxs)
+    # for idx in bin_idxs:
+    #     print ("{} => {}".format(idx, sat_hist[idx]))    
+    # print ("sat_thres_min:", sat_thres_min)
 
-    # Step 2: Apply dynamic threshold on the RGB "red" channel.
+    # Step 4: Apply dynamic threshold on the RGB "red" channel.
     # Reason to use red channel here because red channel values for yellow lane is significantl different from background's values
     red_channel = img[:, :, 2]  # red channel
     red_channel_warped, M, Minv = perspective_transform(red_channel)
@@ -214,13 +228,13 @@ def color_thresh(img):
     # val_mean = np.mean(red_channel_warped)
     val_cond = (val_thres_min <= red_channel) & (red_channel <= 255)
 
-    # Step 3: Apply predefined hue threshold on image
+    # Step 5: Apply predefined hue threshold on image
     hue_cond = (hue_thres_min <= h) & (h <= hue_thres_max)
 
-    # Step 4: Combine conditions to get final output
+    # Step 6: Combine conditions to get final output
     binary_output[val_cond & sat_cond & hue_cond] = 1
 
-    # Step 5: Closing small holes inside the yellow lane
+    # Step 7: Closing small holes inside the yellow lane
     kernel = np.ones((5, 5), np.uint8)
     binary_output = cv2.morphologyEx(
         binary_output.astype(np.uint8), cv2.MORPH_CLOSE, kernel)
@@ -249,8 +263,8 @@ def color_thresh(img):
         OUTPUT_DIR = "./sat-test"
         pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
         step = 5
-        MAX_HUE = 180
-        for i in range(0, MAX_HUE - step, step):
+        MAX_SAT = 255
+        for i in range(0, MAX_SAT - step, step):
             mask = cv2.inRange(hls_img[:, :, 2], i, i + step)
             mask[mask > 0] = 255
             mask = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
