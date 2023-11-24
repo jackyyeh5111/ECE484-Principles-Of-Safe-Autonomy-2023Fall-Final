@@ -65,7 +65,8 @@ class LaneDetector():
         start_time = time.time()
         
         raw_img = cv_image.copy()
-        mask_image, bird_image, way_pts = self.detection(raw_img)
+        self.detection(raw_img)
+        # mask_image, bird_image, way_pts = self.detection(raw_img)
 
         print("Detection takes time: {:.3f} seconds".format(time.time() - start_time))
 
@@ -77,14 +78,14 @@ class LaneDetector():
             print ('output to {}'.format(output_path))
             cv2.imwrite(output_path, raw_img)
             
-        if mask_image is not None and bird_image is not None:
-            # Convert an OpenCV image into a ROS image message
-            out_img_msg = self.bridge.cv2_to_imgmsg(mask_image, 'bgr8')
-            out_bird_msg = self.bridge.cv2_to_imgmsg(bird_image, 'bgr8')
+        # if mask_image is not None and bird_image is not None:
+        #     # Convert an OpenCV image into a ROS image message
+        #     out_img_msg = self.bridge.cv2_to_imgmsg(mask_image, 'bgr8')
+        #     out_bird_msg = self.bridge.cv2_to_imgmsg(bird_image, 'bgr8')
 
-            # Publish image message in ROS
-            self.pub_image.publish(out_img_msg)
-            self.pub_bird.publish(out_bird_msg)
+        #     # Publish image message in ROS
+        #     self.pub_image.publish(out_img_msg)
+        #     self.pub_bird.publish(out_bird_msg)
 
     def line_fit(self, binary_warped):
         """
@@ -315,7 +316,7 @@ class LaneDetector():
         
         # line fit
         ret = self.line_fit(color_warped)
-        if ret is None:
+        if ret is None: # fail to polyfit waypoints
             return
             
         # get get_waypoints
