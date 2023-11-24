@@ -38,6 +38,7 @@ parser.add_argument('--angle_diff_thres', type=float, default=2.0)
 parser.add_argument('--kp', type=float, default=1.5)
 parser.add_argument('--kd', type=float, default=0.05)
 parser.add_argument('--ki', type=float, default=0.0)
+parser.add_argument('--enable_pid', action='store_true')
 
 def main():
     args = parser.parse_args()

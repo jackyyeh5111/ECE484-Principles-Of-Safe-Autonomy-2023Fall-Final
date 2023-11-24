@@ -8,6 +8,7 @@ import argparse
 ###################################################################################################
 
 from way_pts import way_pts
+
 class F1tenth_controller(object):
     def __init__(self, args, debug_mode=False):
         self.steering_k = args.steering_k
@@ -27,10 +28,13 @@ class F1tenth_controller(object):
         self.prev_error = 0.0 
         self.prev_steering = np.inf
         self.integral = 0.0
-        self.dt = 0.03
+        
+        self.ros_rate = 30
+        self.dt = 1.0 / self.ros_rate
+        self.enable_pid = args.enable_pid
         
         if not debug_mode:
-            self.rate = rospy.Rate(30)  # Hz
+            self.rate = rospy.Rate(self.ros_rate)  # Hz
             self.ctrl_pub = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
             self.drive_msg = AckermannDriveStamped()
             self.drive_msg.header.frame_id = "f1tenth_control"
@@ -135,12 +139,15 @@ class F1tenth_controller(object):
         # target_steering_deg = round(np.degrees(target_steering))
         
         alpha = np.arctan2(self.goal_y, self.goal_x)
+        pp_angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1)
         
         # PID control
         ct_error = self.targ_pts[0][1]  
-        pid_ang = self.kp * ct_error + self.kd * ((ct_error - self.prev_error) / self.dt)
+        pid_ang = 0
+        if self.enable_pid:
+            pid_ang = self.kp * ct_error + self.kd * ((ct_error - self.prev_error) / self.dt)
         self.prev_error = ct_error
-        pp_angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1)
+        
         target_steering = round(np.clip(pp_angle + pid_ang, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
         target_steering_deg = round(np.degrees(target_steering))
         
@@ -189,9 +196,9 @@ class F1tenth_controller(object):
             "first waypt: ({:.2f}, {:.2f})".format(self.targ_pts[0][0], self.targ_pts[0][1]),
             "lookahead_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y),
             "ct_error: {:.3f}".format(ct_error),
-            "steering(deg): {}".format(target_steering_deg),
-            "pp_angle: {:.2f}".format(pp_angle),
-            "pid_ang: {:.2f}".format(pid_ang),
+            "steering_ang: {:.2f}".format(target_steering_deg),
+            "pp_ang: {:.2f}".format(np.degrees(pp_angle)),
+            "pid_ang: {:.2f}".format(np.degrees(pid_ang)),
             "curvature: {:.3f}".format(curvature),
             "target_vel: {:.2f}".format(target_velocity),
         ]
