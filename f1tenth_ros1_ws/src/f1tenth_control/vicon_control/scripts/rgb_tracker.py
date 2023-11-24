@@ -27,7 +27,7 @@ parser.add_argument('--window_height', type=int, default=20)
 
 # controller arguments
 parser.add_argument('--steering_k', type=float, default=0.6)
-parser.add_argument('--steering_i', type=float, default=4.0)
+parser.add_argument('--steering_i', type=float, default=1.0)
 parser.add_argument('--angle_limit', type=float, default=80)
 parser.add_argument('--curv_min', type=float, default=0.0)
 parser.add_argument('--curv_max', type=float, default=0.4)

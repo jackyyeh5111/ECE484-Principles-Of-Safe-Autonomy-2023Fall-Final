@@ -138,7 +138,7 @@ class F1tenth_controller(object):
         # target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
         # target_steering_deg = round(np.degrees(target_steering))
         
-        alpha = np.arctan2(self.goal_y, self.goal_x)
+        alpha = np.arctan2(self.goal_y, self.goal_x) * self.steering_i
         pp_angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1)
         
         # PID control
