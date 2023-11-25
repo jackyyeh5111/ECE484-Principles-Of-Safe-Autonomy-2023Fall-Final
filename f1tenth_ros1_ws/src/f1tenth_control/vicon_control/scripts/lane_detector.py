@@ -81,7 +81,9 @@ class LaneDetector():
             return
         
         _, _, way_pts = ret
-        if len(way_pts) < 3:
+        min_way_pts = 3
+        if len(way_pts) < min_way_pts:
+            print ('Number of detected way_pts is less than {}. Skip this frame.'.format(min_way_pts))
             return
         else:
             self.controller.run(way_pts)
@@ -175,25 +177,25 @@ class LaneDetector():
         
         lanex = [pt[0] for pt in lane_pts]
         laney = [pt[1] for pt in lane_pts]
-        try:
-            lane_fit = np.polyfit(laney, lanex, deg=2)
-            
-            ### vis lane points ###
-            for x, y in zip(lanex, laney):
-                color_warped = cv2.circle(color_warped, (x, y), 2, (0,255, 0), -1)
-                
-            ### vis points nonzero ###
-            # for x, y in zip(rightx, righty):
-            #     color_warped = cv2.circle(color_warped, (x, y), 1, (0,255, 0), -1)
-            # imshow("points", color_warped )
+        # vis lane points
+        for x, y in zip(lanex, laney):
+            color_warped = cv2.circle(color_warped, (x, y), 2, (0,255, 0), -1)
+        
+        # try:
+        #     lane_fit = np.polyfit(laney, lanex, deg=2)
+                    
+        #     ### vis points nonzero ###
+        #     # for x, y in zip(rightx, righty):
+        #     #     color_warped = cv2.circle(color_warped, (x, y), 1, (0,255, 0), -1)
+        #     # imshow("points", color_warped )
 
-        except TypeError:
-            print("Unable to detect lanes")
-            return None
+        # except TypeError:
+        #     print("Unable to detect lanes")
+        #     return None
 
         ret = {}
         ret['vis_warped'] = color_warped
-        ret['lane_fit'] = lane_fit
+        # ret['lane_fit'] = lane_fit
         ret['lanex'] = lanex
         ret['laney'] = laney
         return ret
