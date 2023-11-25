@@ -294,9 +294,7 @@ class LaneDetector():
     def get_latest_waypoints(self):
         return self.way_pts
     
-    def update_waypoints(self, ret, width, height, look_ahead_dist = 1.0):
-            lanex = ret['lanex']
-            laney = ret['laney']
+    def update_waypoints(self, lanex, laney, width, height):
             
             # transform from image coord (x, y) to camera coord in meters
             lanex = [(x - width // 2) * PIX2METER_X for x in lanex]
@@ -313,7 +311,67 @@ class LaneDetector():
             # only update way pts when succefully fit lines
             if len(way_pts) != 0:
                 self.way_pts = way_pts
+    
+    def get_matrix_calibration(self, img_shape,
+                               src_leftx=218,
+                               src_rightx=467,
+                               laney=348,
+                               offsety=0):
+        """
+        Get bird's eye view from input image
+        """
+        # 1. Visually determine 4 source points and 4 destination points
+        # 2. Get M, the transform matrix, and Minv, the inverse using cv2.getPerspectiveTransform()
+        # 3. Generate warped image in bird view using cv2.warpPerspective()
+
+        # Define four points as (x, y) coordinates
+        src_height, src_width = img_shape
+
+        src_pts = np.array([[src_leftx, laney],
+                            [0, src_height - offsety],
+                            [src_width, src_height - offsety],
+                            [src_rightx, laney]], dtype=np.int32)
+
+        # dst_width, dst_height = 720, 1250
+        dst_width, dst_height = src_width, src_height
+        dst_pts = np.array([[0, 0],
+                            [0, dst_height],
+                            [dst_width, dst_height],
+                            [dst_width, 0]], dtype=np.int32)
+
+        def calc_warp_points():
+            src = np.float32(src_pts)
+            dst = np.float32(dst_pts)
+            return src, dst
+
+        src, dst = calc_warp_points()
+        M = cv2.getPerspectiveTransform(src, dst)
+        Minv = cv2.getPerspectiveTransform(dst, src)
+
+        return M, Minv
+
+    def convert2CalibrationCoord(self, shape, lanex, laney, Minv):
+        clb_M, clb_Minv = self.get_matrix_calibration(shape)
+        num_waypts = len(lanex)
+        coords = np.zeros((num_waypts, 2))
+        for i, (x, y) in enumerate(zip(lanex, laney)):
+            coords[i][0] = x
+            coords[i][1] = y
+
+        one_vec = np.ones((num_waypts, 1)) # convert to homogeneous coord
+        coords = np.concatenate((coords, one_vec), axis=1)
         
+        raw_coords = Minv @ coords.T
+        clb_coords = clb_M @ raw_coords
+        clb_coords_normalize = clb_coords / clb_coords[2]
+        clb_coords_normalize = clb_coords_normalize.T
+        
+        # display coord transformation
+        for i, (x, y) in enumerate(zip(lanex, laney)):
+            print (f'{i+1} => {(x, y)} => {clb_coords_normalize[i][:2]}')
+            
+        return clb_coords_normalize[:, 0], clb_coords_normalize[:, 1]
+            
     def detection(self, img):
         # use color_thresh result only
         color_output = self.color_thresh(img)
@@ -324,9 +382,13 @@ class LaneDetector():
         if ret is None: # fail to polyfit waypoints
             return None
             
+        # convert to calibration coords
+        clb_x, clb_y = \
+            self.convert2CalibrationCoord(img.shape[:2], ret['lanex'], ret['laney'], Minv)
+        
         # get get_waypoints
         height, width = img.shape[:2]
-        self.update_waypoints(ret, width, height, look_ahead_dist = 1.0)
+        self.update_waypoints(clb_x, clb_y, width, height)
         
         return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR), self.way_pts
 

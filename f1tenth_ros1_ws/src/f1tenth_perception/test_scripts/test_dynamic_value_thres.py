@@ -286,6 +286,44 @@ def color_thresh(img):
     return binary_output
 
 
+def get_matrix_calibration(img_shape,
+                           src_leftx=218,
+                           src_rightx=467,
+                           laney=348,
+                           offsety=0):
+    """
+    Get bird's eye view from input image
+    """
+    # 1. Visually determine 4 source points and 4 destination points
+    # 2. Get M, the transform matrix, and Minv, the inverse using cv2.getPerspectiveTransform()
+    # 3. Generate warped image in bird view using cv2.warpPerspective()
+
+    # Define four points as (x, y) coordinates
+    src_height, src_width = img_shape
+
+    src_pts = np.array([[src_leftx, laney],
+                        [0, src_height - offsety],
+                        [src_width, src_height - offsety],
+                        [src_rightx, laney]], dtype=np.int32)
+
+    # dst_width, dst_height = 720, 1250
+    dst_width, dst_height = src_width, src_height
+    dst_pts = np.array([[0, 0],
+                        [0, dst_height],
+                        [dst_width, dst_height],
+                        [dst_width, 0]], dtype=np.int32)
+
+    def calc_warp_points():
+        src = np.float32(src_pts)
+        dst = np.float32(dst_pts)
+        return src, dst
+
+    src, dst = calc_warp_points()
+    M = cv2.getPerspectiveTransform(src, dst)
+    Minv = cv2.getPerspectiveTransform(dst, src)
+
+    return M, Minv
+
 def perspective_transform(img):
     """
     Get bird's eye view from input image
@@ -393,7 +431,8 @@ def line_fit(binary_warped):
     basex = best_base_x
     lane_pts = []
     prev_basex_list = []
-    for i in range(nwindows):
+    i = 0
+    while True:
         win_top = height - (i + 1) * args.window_height
         win_bottom = win_top + args.window_height
 
@@ -423,6 +462,8 @@ def line_fit(binary_warped):
         lane_pts.append([basex, basey])
         prev_basex_list.append(basex)
 
+        i += 1
+        
         # visualization
         color_warped = cv2.rectangle(
             color_warped, (basex - margin, win_top), (basex + margin, win_bottom), (0, 0, 255))
@@ -457,7 +498,24 @@ def line_fit(binary_warped):
     ret['laney'] = laney
     return ret
 
+def convert2CalibrationCoord(shape, lanex, laney, Minv):
+    clb_M, clb_Minv = get_matrix_calibration(shape)
+    num_waypts = len(lanex)
+    coords = np.zeros((num_waypts, 2))
+    for i, (x, y) in enumerate(zip(lanex, laney)):
+        coords[i][0] = x
+        coords[i][1] = y
 
+    one_vec = np.ones((num_waypts, 1)) # convert to homogeneous coord
+    coords = np.concatenate((coords, one_vec), axis=1)
+    
+    raw_coords = Minv @ coords.T
+    clb_coords = clb_M @ raw_coords
+    clb_coords = clb_coords.T
+    for i, (x, y) in enumerate(zip(lanex, laney)):
+        clb_coord = clb_coords[i] / clb_coords[i][2]
+        print (f'{i+1} => {(x, y)} => {clb_coord[:2]}')
+        
 def run(img_path, fail_paths):
     global img_name
     img_name = img_path.strip('.png').split('/')[-1]
@@ -474,6 +532,8 @@ def run(img_path, fail_paths):
         fail_paths.append(img_path)
         print("Fail to fit line")
         return
+            
+    convert2CalibrationCoord(img.shape[:2], ret['lanex'], ret['laney'], Minv)
 
     ### visulization all ###
     # SobelOutput = cv2.cvtColor(SobelOutput*255, cv2.COLOR_GRAY2BGR)
