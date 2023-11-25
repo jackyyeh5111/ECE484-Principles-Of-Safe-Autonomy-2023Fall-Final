@@ -8,7 +8,6 @@ import argparse
 ###################################################################################################
 
 from way_pts import way_pts
-
 class F1tenth_controller(object):
     def __init__(self, args, debug_mode=False):
         self.steering_k = args.steering_k
@@ -19,22 +18,16 @@ class F1tenth_controller(object):
         self.vel_min = args.vel_min
         self.vel_max = args.vel_max
         self.look_ahead = args.look_ahead
-        self.angle_diff_thres = args.angle_diff_thres
-        self.kp = args.kp
-        self.kd = args.kd
-        self.ki = args.ki
         self.wheelbase = 0.325
         self.debug_mode = debug_mode
+        self.kp = 1.5
+        self.kd = 0.05
+        self.ki = 0.0
         self.prev_error = 0.0 
-        self.prev_steering = np.inf
         self.integral = 0.0
-        
-        self.ros_rate = 30
-        self.dt = 1.0 / self.ros_rate
-        self.enable_pid = args.enable_pid
-        
+        self.dt = 1 / 30.0
         if not debug_mode:
-            self.rate = rospy.Rate(self.ros_rate)  # Hz
+            # self.rate = rospy.Rate(30)  # Hz
             self.ctrl_pub = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
             self.drive_msg = AckermannDriveStamped()
             self.drive_msg.header.frame_id = "f1tenth_control"
@@ -132,24 +125,31 @@ class F1tenth_controller(object):
         ## true look-ahead distance between a waypoint and current position
         ld = np.hypot(self.goal_x, self.goal_y)
         
-        # find target steering angle (tuning this part as needed)
+        # # find target steering angle (tuning this part as needed)
+        alpha = np.arctan2(self.goal_y, self.goal_x)
+        # angle = np.arctan2(( 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
+        angle = np.arctan2((self.steering_k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
+        target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
+        target_steering_deg = round(np.degrees(target_steering))
         # alpha = np.arctan2(self.goal_y, self.goal_x)
-        # angle = np.arctan2((self.steering_k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
+        
+        #### hang controller ####
+        # alpha = np.arctan2(self.goal_y, self.goal_x)
+        # k       = 0.1
+        # angle_i = np.arctan2(k * 2 * self.wheelbase * np.sin(alpha), ld)
+        # angle   = angle_i*2
+        #             # ----------------- tuning this part as needed -----------------
+        # target_steering = round(np.clip(angle, -0.6, 0.3), 3)
+        # target_steering_deg = round(np.degrees(target_steering))
+
+        
+        #### PID ####
+        # ct_error =  self.targ_pts[0][1]
+        # pid_ang = self.kp*ct_error + self.kd * ((ct_error-self.prev_error) / self.dt)
+        # self.prev_error = ct_error
+        # angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1) + pid_ang
         # target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
         # target_steering_deg = round(np.degrees(target_steering))
-        
-        alpha = np.arctan2(self.goal_y, self.goal_x) * self.steering_i
-        pp_angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1)
-        
-        # PID control
-        ct_error = self.targ_pts[0][1]  
-        pid_ang = 0
-        if self.enable_pid:
-            pid_ang = self.kp * ct_error + self.kd * ((ct_error - self.prev_error) / self.dt)
-        self.prev_error = ct_error
-        
-        target_steering = round(np.clip(pp_angle + pid_ang, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
-        target_steering_deg = round(np.degrees(target_steering))
         
         ## compute track curvature for longititudal control
         num_waypts = len(self.targ_pts)
@@ -178,29 +178,19 @@ class F1tenth_controller(object):
         if target_steering >= np.radians(steering_limit):
             target_velocity = self.vel_min
         
-        
         if not self.debug_mode:
-            # In order to make car running smoother, publish control signal
-            # only when steering angle difference is large enough.
-            angle_diff = np.degrees(abs(target_steering - self.prev_steering))
-            if angle_diff > self.angle_diff_thres:
-                print('Publish control signal!!')
-                self.prev_steering = target_steering
-                self.drive_msg.header.stamp = rospy.get_rostime()
-                self.drive_msg.drive.steering_angle = target_steering
-                self.drive_msg.drive.speed = target_velocity
-                self.ctrl_pub.publish(self.drive_msg)
+            self.drive_msg.header.stamp = rospy.get_rostime()
+            self.drive_msg.drive.steering_angle = target_steering
+            self.drive_msg.drive.speed = target_velocity
+            self.ctrl_pub.publish(self.drive_msg)
         
-        # ctrl msgs displayed on results
         msgs = [
-            "first waypt: ({:.2f}, {:.2f})".format(self.targ_pts[0][0], self.targ_pts[0][1]),
-            "lookahead_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y),
-            "ct_error: {:.3f}".format(ct_error),
-            "steering_ang: {:.2f}".format(target_steering_deg),
-            "pp_ang: {:.2f}".format(np.degrees(pp_angle)),
-            "pid_ang: {:.2f}".format(np.degrees(pid_ang)),
+            "lookahead: {:.3f}".format(ld),
+            # "ct_error: {:.3f}".format(ct_error),
+            "steering(deg): {}".format(target_steering_deg),
             "curvature: {:.3f}".format(curvature),
             "target_vel: {:.2f}".format(target_velocity),
+            "steer_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y)
         ]
         
         # print msgs
