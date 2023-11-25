@@ -11,8 +11,41 @@ from sensor_msgs.msg import Image
 from std_msgs.msg import Header
 from cv_bridge import CvBridge, CvBridgeError
 from std_msgs.msg import Float32
+from std_msgs.msg import Float64MultiArray
+from ackermann_msgs.msg import AckermannDriveStamped, AckermannDrive
+
 
 import argparse
+
+parser = argparse.ArgumentParser()
+
+# lane detector arguments
+parser.add_argument('--output_dir', '-o', type=str, default='')
+parser.add_argument('--output_freq', type=int, default=1)
+parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
+# parser.add_argument('--sat_thresh', type=str, default='60,255')
+parser.add_argument('--sat_cdf_lower_thres', type=float, default=0.5)
+parser.add_argument('--blue_red_diff_thres', type=int, default=30)
+parser.add_argument('--val_thres_percentile', type=int, default=65)
+parser.add_argument('--hue_thresh', type=str, default='15,40')
+parser.add_argument('--dilate_size', type=int, default=5)
+parser.add_argument('--perspective_pts', '-p',
+                    type=str, default='218,467,348,0')
+parser.add_argument('--window_height', type=int, default=20)
+
+# controller arguments
+parser.add_argument('--steering_k', type=float, default=1.0)
+parser.add_argument('--steering_i', type=float, default=1.0)
+parser.add_argument('--angle_limit', type=float, default=30)
+parser.add_argument('--curv_min', type=float, default=0.0)
+parser.add_argument('--curv_max', type=float, default=0.4)
+parser.add_argument('--vel_min', type=float, default=1.0)
+parser.add_argument('--vel_max', type=float, default=1.0)
+parser.add_argument('--look_ahead', type=float, default=1.0)
+parser.add_argument('--angle_diff_thres', type=float, default=2.0)
+parser.add_argument('--kp', type=float, default=1.5)
+parser.add_argument('--kd', type=float, default=0.05)
+parser.add_argument('--ki', type=float, default=0.0)
 
 INCH2METER = 0.0254
 PIX2METER_X = 0.0009525 # meter
@@ -26,13 +59,30 @@ class LaneDetector():
         self.output_dir = args.output_dir
         self.output_freq = args.output_freq
         
+        # controller params
+        self.steering_k = args.steering_k
+        self.steering_i = args.steering_i
+        self.angle_limit = args.angle_limit
+        self.curv_min = args.curv_min
+        self.curv_max = args.curv_max
+        self.vel_min = args.vel_min
+        self.vel_max = args.vel_max
+        self.look_ahead = args.look_ahead
+        self.wheelbase = 0.325
+        self.debug_mode = debug_mode
+        
         self.way_pts = []
         self.cnt = 0
-        self.controller = F1tenth_controller(args)
+        # self.controller = F1tenth_controller(args)
         if not self.debug_mode:
             self.bridge = CvBridge()
             self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback, queue_size=1)
-            
+
+            self.ctrl_pub = rospy.Publisher("/vesc/low_level/ackermann_cmd_mux/input/navigation", AckermannDriveStamped, queue_size=1)
+            self.drive_msg = AckermannDriveStamped()
+            self.drive_msg.header.frame_id = "f1tenth_control"
+
+
     def parse_params(self, args):
         # parse params
         # self.sat_thres_min, self.sat_thres_max = args.sat_thresh.split(',')
@@ -67,6 +117,19 @@ class LaneDetector():
         ret = self.detection(raw_img)
         print("Detection takes time: {:.3f} seconds".format(time.time() - start_time))
 
+        # Do not update control signal. 
+        # Because it cannot fit polyline if way points < 3
+        if ret is None:
+            print ('ret is None.')
+            return
+        
+        _, _, way_pts = ret
+        min_way_pts = 3
+        if len(way_pts) < min_way_pts:
+            print ('Number of detected way_pts is less than {}. Skip this frame.'.format(min_way_pts))
+            return
+        self.run(self.get_latest_waypoints())
+        
         # output images for debug
         self.cnt += 1
         OUTPUT_DIR = os.path.join('test_images', self.output_dir)
@@ -76,18 +139,13 @@ class LaneDetector():
             print ('output to {}'.format(output_path))
             cv2.imwrite(output_path, raw_img)
          
-        # Do not update control signal. 
-        # Because it cannot fit polyline if way points < 3
-        if ret is None:
-            return
-        
-        _, _, way_pts = ret
-        min_way_pts = 3
-        if len(way_pts) < min_way_pts:
-            print ('Number of detected way_pts is less than {}. Skip this frame.'.format(min_way_pts))
-            return
-        else:
-            self.controller.run(way_pts)
+        # _, _, way_pts = ret
+        # min_way_pts = 3
+        # if len(way_pts) < min_way_pts:
+        #     print ('Number of detected way_pts is less than {}. Skip this frame.'.format(min_way_pts))
+        #     return
+        # else:
+        #     self.controller.run(way_pts)
         
     def line_fit(self, binary_warped):
         """
@@ -160,7 +218,8 @@ class LaneDetector():
             reach_boundary = basex - margin < 0 or \
                             basex + margin >= width or \
                             win_top < 0
-            if reach_boundary or len(window_nonzerox) < minpix:
+            # if reach_boundary len(window_nonzerox) < minpix:
+            if len(window_nonzerox) < minpix:
                 break
             
             # correct basex by average and use average (x, y) as way points
@@ -398,22 +457,169 @@ class LaneDetector():
         
         return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR), self.way_pts
 
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
-    parser.add_argument('--sat_thresh', type=str, default='60,255')
-    parser.add_argument('--val_thres_percentile', type=int, default=65)
-    parser.add_argument('--hue_thresh', type=str, default='15,40')
-    parser.add_argument('--dilate_size', type=int, default=5)
-    parser.add_argument('--hist_y_begin', type=int, default=30)
-    parser.add_argument('--perspective_pts', '-p',
-                        type=str, default='218,467,348,0')
-    args = parser.parse_args()
+    def get_steering_based_point(self, targ_pts, max_step = 100):
+        """ 
+            Extend the curve to find the most suitable way point
+        """
+        self.look_ahead
+        lanex = [pt[0] for pt in targ_pts]
+        laney = [pt[1] for pt in targ_pts]
+        lane_fit = np.polyfit(lanex, laney, deg=2)
+        max_x = np.max(lanex)
+        min_x = np.min(lanex)
+        step = (max_x - min_x) / 50
+        
+        steering_based_pt = [-1, -1]
+        for i in range(max_step):
+            x = min_x + i*step
+            y = np.polyval(lane_fit, x)
+            dist = np.hypot(x, y)
+            
+            steering_based_pt = [x, y]
+            if dist > self.look_ahead:
+                break
+            
+        return steering_based_pt
+        
+        
+    def run(self, way_pts=None):
+        ## find the goal point which is the last in the set of points less than lookahead distance
+        if way_pts is None: # way_pts is provided by the perload file
+            self.get_targ_points()
+        else:
+            self.targ_pts = way_pts
+            
+        # for targ_pt in self.targ_pts[::-1]:
+        #     angle = np.arctan2(targ_pt[1], targ_pt[0])
+        #     ## find correct look-ahead point by using heading information
+        #     if abs(angle) < np.pi/2:
+        #         self.goal_x, self.goal_y = targ_pt[0], targ_pt[1]
+        #         break
 
-    # init args
-    rospy.init_node('lanenet_node', anonymous=True)
-    rate = rospy.Rate(30)  # Hz
-    print ('Start to detect...')
+        ## lateral control using pure pursuit
+        # self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts)
+        self.goal_x = self.targ_pts[-1][0]
+        self.goal_y = self.targ_pts[-1][1]
+        
+        ## true look-ahead distance between a waypoint and current position
+        ld = np.hypot(self.goal_x, self.goal_y)
+        
+        # # find target steering angle (tuning this part as needed)
+        alpha = np.arctan2(self.goal_y, self.goal_x)
+        # angle = np.arctan2(( 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
+        angle = np.arctan2((self.steering_k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
+        target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
+        target_steering_deg = round(np.degrees(target_steering))
+        # alpha = np.arctan2(self.goal_y, self.goal_x)
+        
+        #### hang controller ####
+        # alpha = np.arctan2(self.goal_y, self.goal_x)
+        # k       = 0.1
+        # angle_i = np.arctan2(k * 2 * self.wheelbase * np.sin(alpha), ld)
+        # angle   = angle_i*2
+        #             # ----------------- tuning this part as needed -----------------
+        # target_steering = round(np.clip(angle, -0.6, 0.3), 3)
+        # target_steering_deg = round(np.degrees(target_steering))
+
+        
+        #### PID ####
+        # ct_error =  self.targ_pts[0][1]
+        # pid_ang = self.kp*ct_error + self.kd * ((ct_error-self.prev_error) / self.dt)
+        # self.prev_error = ct_error
+        # angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1) + pid_ang
+        # target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
+        # target_steering_deg = round(np.degrees(target_steering))
+        
+        ## compute track curvature for longititudal control
+        num_waypts = len(self.targ_pts)
+        idxs = [0, num_waypts // 2, num_waypts - 1]
+            
+        if len(self.targ_pts) >= 3:
+            dx0 = self.targ_pts[idxs[1]][0] - self.targ_pts[idxs[0]][0]
+            dy0 = self.targ_pts[idxs[1]][1] - self.targ_pts[idxs[0]][1]
+            dx1 = self.targ_pts[idxs[2]][0] - self.targ_pts[idxs[1]][0]
+            dy1 = self.targ_pts[idxs[2]][1] - self.targ_pts[idxs[1]][1]
+    
+            # dx0 = self.targ_pts[-2][0] - self.targ_pts[-3][0]
+            # dy0 = self.targ_pts[-2][1] - self.targ_pts[-3][1]
+            # dx1 = self.targ_pts[-1][0] - self.targ_pts[-2][0]
+            # dy1 = self.targ_pts[-1][1] - self.targ_pts[-2][1]
+            ddx, ddy = dx1 - dx0, dy1 - dy0
+            curvature = np.inf if dx1 == 0 and dy1 == 0 else abs((dx1*ddy - dy1*ddx) / (dx1**2 + dy1**2) ** (3/2))
+        else:
+            curvature = np.inf
+
+        ## adjust speed according to curvature and steering angle
+        curvature = min(self.curv_max, curvature)
+        curvature = max(self.curv_min, curvature)
+        target_velocity = self.vel_max - (self.vel_max - self.vel_min) * curvature / (self.curv_max - self.curv_min)
+        steering_limit = 60
+        if target_steering >= np.radians(steering_limit):
+            target_velocity = self.vel_min
+        
+        if not self.debug_mode:
+            self.drive_msg.header.stamp = rospy.get_rostime()
+            self.drive_msg.drive.steering_angle = target_steering
+            self.drive_msg.drive.speed = target_velocity
+            self.ctrl_pub.publish(self.drive_msg)
+        
+        msgs = [
+            "lookahead: {:.3f}".format(ld),
+            # "ct_error: {:.3f}".format(ct_error),
+            "steering(deg): {}".format(target_steering_deg),
+            "curvature: {:.3f}".format(curvature),
+            "target_vel: {:.2f}".format(target_velocity),
+            "steer_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y)
+        ]
+        
+        # print msgs
+        print ('\n----- control msgs -----')
+        for msg in msgs:
+            print (msg)
+
+        return msgs # return msgs for debug
+    
+def main():
+    args = parser.parse_args()
+    print ('======= Initial arguments =======')
+    params = []
+    for key, val in vars(args).items():
+        param = f"--{key} {val}"
+        print(f"{key} => {val}")
+        params.append(param)
+
+    # save params for debug
+    if args.output_dir != '':
+        OUTPUT_DIR = os.path.join('test_images', args.output_dir)
+        pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)  
+        with open(os.path.join(OUTPUT_DIR, 'params.txt'), 'w') as f:
+            commands = ['python debug_helper.py -i {}'.format(OUTPUT_DIR)] + params
+            f.write(' \\\n  '.join(commands))
+
+    assert args.curv_min <= args.curv_max
+    assert args.vel_min <= args.vel_max
+    
+    rospy.init_node('rgb_track_node', anonymous=True)
+    rate = rospy.Rate(15)  # Hz
+
     lane_detector = LaneDetector(args)
-    while not rospy.core.is_shutdown():
-        rate.sleep()
+    # controller = F1tenth_controller(args)
+    try:
+        print ('\nStart navigation...')
+        while not rospy.is_shutdown():
+            # start_time = time.time()
+            # way_pts = lane_detector.get_latest_waypoints()
+            
+            # Do not update control signal. 
+            # Because it cannot fit polyline if way points < 3
+            # if len(way_pts) >= 3:
+            #     controller.run(way_pts)
+            rate.sleep()  # Wait a while before trying to get a new waypoints
+            # print("pipeline takes time: {:.3f} seconds".format(time.time() - start_time))
+            # pass
+    except rospy.ROSInterruptException:
+        pass
+
+
+if __name__ == '__main__':
+    main()

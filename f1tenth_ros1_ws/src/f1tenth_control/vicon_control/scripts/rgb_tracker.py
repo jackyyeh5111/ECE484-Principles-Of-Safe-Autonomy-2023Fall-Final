@@ -62,7 +62,7 @@ def main():
     assert args.vel_min <= args.vel_max
     
     rospy.init_node('rgb_track_node', anonymous=True)
-    rate = rospy.Rate(30)  # Hz
+    rate = rospy.Rate(15)  # Hz
 
     lane_detector = LaneDetector(args)
     # controller = F1tenth_controller(args)
@@ -78,6 +78,7 @@ def main():
             #     controller.run(way_pts)
             rate.sleep()  # Wait a while before trying to get a new waypoints
             # print("pipeline takes time: {:.3f} seconds".format(time.time() - start_time))
+            # pass
     except rospy.ROSInterruptException:
         pass
 
