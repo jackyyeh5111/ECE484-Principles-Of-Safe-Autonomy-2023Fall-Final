@@ -9,6 +9,7 @@ from lane_detector import LaneDetector
 import argparse
 import pathlib
 import os
+import time
 
 parser = argparse.ArgumentParser()
 
@@ -64,17 +65,19 @@ def main():
     rate = rospy.Rate(30)  # Hz
 
     lane_detector = LaneDetector(args)
-    controller = F1tenth_controller(args)
+    # controller = F1tenth_controller(args)
     try:
         print ('\nStart navigation...')
         while not rospy.is_shutdown():
-            way_pts = lane_detector.get_latest_waypoints()
+            # start_time = time.time()
+            # way_pts = lane_detector.get_latest_waypoints()
             
             # Do not update control signal. 
             # Because it cannot fit polyline if way points < 3
-            if len(way_pts) >= 3:
-                controller.run(way_pts)
+            # if len(way_pts) >= 3:
+            #     controller.run(way_pts)
             rate.sleep()  # Wait a while before trying to get a new waypoints
+            # print("pipeline takes time: {:.3f} seconds".format(time.time() - start_time))
     except rospy.ROSInterruptException:
         pass
 

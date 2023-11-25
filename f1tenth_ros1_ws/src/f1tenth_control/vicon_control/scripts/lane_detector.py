@@ -5,6 +5,7 @@ import cv2
 import rospy
 import os
 import pathlib
+from vicon_tracker_pp import F1tenth_controller
 
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header
@@ -27,13 +28,10 @@ class LaneDetector():
         
         self.way_pts = []
         self.cnt = 0
+        self.controller = F1tenth_controller(args)
         if not self.debug_mode:
             self.bridge = CvBridge()
-            self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback, queue_size=1)
-            self.pub_image = rospy.Publisher(
-                "lane_detection/annotate", Image, queue_size=1)
-            self.pub_bird = rospy.Publisher(
-                "lane_detection/birdseye", Image, queue_size=1)
+            self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback)
             
     def parse_params(self, args):
         # parse params
@@ -65,11 +63,10 @@ class LaneDetector():
         start_time = time.time()
         
         raw_img = cv_image.copy()
-        self.detection(raw_img)
-        # mask_image, bird_image, way_pts = self.detection(raw_img)
-
+        way_pts = self.detection(raw_img)
         print("Detection takes time: {:.3f} seconds".format(time.time() - start_time))
 
+        # output images for debug
         self.cnt += 1
         OUTPUT_DIR = os.path.join('test_images', self.output_dir)
         pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
@@ -77,16 +74,14 @@ class LaneDetector():
             output_path = '{}/{}.png'.format(OUTPUT_DIR, self.cnt)
             print ('output to {}'.format(output_path))
             cv2.imwrite(output_path, raw_img)
-            
-        # if mask_image is not None and bird_image is not None:
-        #     # Convert an OpenCV image into a ROS image message
-        #     out_img_msg = self.bridge.cv2_to_imgmsg(mask_image, 'bgr8')
-        #     out_bird_msg = self.bridge.cv2_to_imgmsg(bird_image, 'bgr8')
-
-        #     # Publish image message in ROS
-        #     self.pub_image.publish(out_img_msg)
-        #     self.pub_bird.publish(out_bird_msg)
-
+         
+        # Do not update control signal. 
+        # Because it cannot fit polyline if way points < 3
+        if way_pts is None or len(way_pts) < 3:
+            return
+        else:
+            self.controller.run(way_pts)
+        
     def line_fit(self, binary_warped):
         """
         Find and fit lane lines
@@ -317,13 +312,13 @@ class LaneDetector():
         # line fit
         ret = self.line_fit(color_warped)
         if ret is None: # fail to polyfit waypoints
-            return
+            return None
             
         # get get_waypoints
         height, width = img.shape[:2]
         self.update_waypoints(ret, width, height, look_ahead_dist = 1.0)
         
-        return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR), self.way_pts
+        return self.way_pts
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
