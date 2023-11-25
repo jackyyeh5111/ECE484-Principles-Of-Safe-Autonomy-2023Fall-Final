@@ -50,6 +50,7 @@ class LaneDetector():
         self.val_thres_percentile = args.val_thres_percentile
         self.dilate_size = args.dilate_size
         self.sat_cdf_lower_thres = args.sat_cdf_lower_thres
+        self.blue_red_diff_thres = args.blue_red_diff_thres
         self.window_height = args.window_height
         
     def img_callback(self, data):
@@ -206,6 +207,11 @@ class LaneDetector():
         """
         # 1. Convert the image from RGB to HSL
         # 2. Apply threshold on S channel to get binary image
+        # Step 1: Filter out pixels with strong reflection
+        img = img.copy()
+        blue_channel = img[:, :, 0].astype(np.float32)
+        red_channel = img[:, :, 2].astype(np.float32)
+        blud_red_diff_cond = red_channel - blue_channel > self.blue_red_diff_thres
 
         hls_img = cv2.cvtColor(img, cv2.COLOR_BGR2HLS)
         
@@ -225,7 +231,7 @@ class LaneDetector():
         cdf = sat_hist.cumsum()
         cdf_normalized = cdf / cdf.max() # Normalize the CDF to the range [0, 1]
         bin_idxs = \
-            np.where((cdf_normalized > self.sat_cdf_lower_thres) & (cdf_normalized < 0.95))[0]
+            np.where((cdf_normalized > self.sat_cdf_lower_thres) & (cdf_normalized < 0.90))[0]
         sat_thres_min = np.argmin( [sat_hist[idx] for idx in bin_idxs] ) + bin_idxs[0]
         sat_cond = ((sat_thres_min <= s) & (s <= 255))
         
@@ -243,7 +249,7 @@ class LaneDetector():
         hue_cond = (self.hue_thres_min <= h) & (h <= self.hue_thres_max)
         
         # combine conditions and get final output
-        binary_output[val_cond & sat_cond & hue_cond] = 1
+        binary_output[val_cond & sat_cond & hue_cond & blud_red_diff_cond] = 1
 
         # closing
         kernel = np.ones((self.dilate_size, self.dilate_size), np.uint8)
@@ -367,8 +373,8 @@ class LaneDetector():
         clb_coords_normalize = clb_coords_normalize.T
         
         # display coord transformation
-        for i, (x, y) in enumerate(zip(lanex, laney)):
-            print (f'{i+1} => {(x, y)} => {clb_coords_normalize[i][:2]}')
+        # for i, (x, y) in enumerate(zip(lanex, laney)):
+        #     print (f'{i+1} => {(x, y)} => {clb_coords_normalize[i][:2]}')
             
         return clb_coords_normalize[:, 0], clb_coords_normalize[:, 1]
             

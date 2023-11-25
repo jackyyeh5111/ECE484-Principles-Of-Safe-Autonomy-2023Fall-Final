@@ -187,8 +187,9 @@ def color_thresh(img):
     
     # Step 1: Filter out pixels with strong reflection
     img = img.copy()
-    # blue_channel = img[:, :, 0]  # red channel
-    # img[blue_channel > args.val_reflection_thres] = 0
+    blue_channel = img[:, :, 0].astype(np.float32)
+    red_channel = img[:, :, 2].astype(np.float32)
+    blud_red_diff = red_channel - blue_channel > 30
 
     # Step 2. Convert the image from RGB to HSL
     # For HSL
@@ -208,7 +209,7 @@ def color_thresh(img):
     cdf_normalized = cdf / cdf.max()  # Normalize the CDF to the range [0, 1]
     bin_idxs = \
         np.where((cdf_normalized > args.sat_cdf_lower_thres)
-                 & (cdf_normalized < 0.95))[0]
+                 & (cdf_normalized < 0.90))[0]
     sat_thres_min = np.argmin([sat_hist[idx]
                               for idx in bin_idxs]) + bin_idxs[0]
     sat_cond = ((sat_thres_min <= s) & (s <= 255))
@@ -232,7 +233,8 @@ def color_thresh(img):
     hue_cond = (hue_thres_min <= h) & (h <= hue_thres_max)
 
     # Step 6: Combine conditions to get final output
-    binary_output[val_cond & sat_cond & hue_cond] = 1
+    binary_output[val_cond & sat_cond & hue_cond & blud_red_diff] = 1
+    # binary_output[val_cond & hue_cond & blud_red_diff] = 1
 
     # Step 7: Closing small holes inside the yellow lane
     kernel = np.ones((5, 5), np.uint8)
@@ -511,10 +513,12 @@ def convert2CalibrationCoord(shape, lanex, laney, Minv):
     
     raw_coords = Minv @ coords.T
     clb_coords = clb_M @ raw_coords
-    clb_coords = clb_coords.T
-    for i, (x, y) in enumerate(zip(lanex, laney)):
-        clb_coord = clb_coords[i] / clb_coords[i][2]
-        print (f'{i+1} => {(x, y)} => {clb_coord[:2]}')
+    clb_coords_normalize = clb_coords / clb_coords[2]
+    clb_coords_normalize = clb_coords_normalize.T
+    
+    # display coord transformation
+    # for i, (x, y) in enumerate(zip(lanex, laney)):
+    #     print (f'{i+1} => {(x, y)} => {clb_coords_normalize[i][:2]}')
         
 def run(img_path, fail_paths):
     global img_name
