@@ -28,19 +28,18 @@ parser.add_argument('--perspective_pts', '-p',
 parser.add_argument('--window_height', type=int, default=20)
 
 # controller arguments
-parser.add_argument('--steering_k', type=float, default=0.6)
+parser.add_argument('--steering_k', type=float, default=1.0)
 parser.add_argument('--steering_i', type=float, default=1.0)
-parser.add_argument('--angle_limit', type=float, default=80)
+parser.add_argument('--angle_limit', type=float, default=30)
 parser.add_argument('--curv_min', type=float, default=0.0)
 parser.add_argument('--curv_max', type=float, default=0.4)
-parser.add_argument('--vel_min', type=float, default=0.6)
+parser.add_argument('--vel_min', type=float, default=1.0)
 parser.add_argument('--vel_max', type=float, default=1.0)
 parser.add_argument('--look_ahead', type=float, default=1.0)
 parser.add_argument('--angle_diff_thres', type=float, default=2.0)
 parser.add_argument('--kp', type=float, default=1.5)
 parser.add_argument('--kd', type=float, default=0.05)
 parser.add_argument('--ki', type=float, default=0.0)
-parser.add_argument('--enable_pid', action='store_true')
 
 def main():
     args = parser.parse_args()
