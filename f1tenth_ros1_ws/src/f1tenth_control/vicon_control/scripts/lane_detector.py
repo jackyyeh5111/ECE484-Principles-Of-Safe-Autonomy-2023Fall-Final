@@ -31,7 +31,7 @@ class LaneDetector():
         self.controller = F1tenth_controller(args)
         if not self.debug_mode:
             self.bridge = CvBridge()
-            self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback)
+            self.sub_image = rospy.Subscriber('/D435I/color/image_raw', Image, self.img_callback, queue_size=1)
             
     def parse_params(self, args):
         # parse params
@@ -63,7 +63,7 @@ class LaneDetector():
         start_time = time.time()
         
         raw_img = cv_image.copy()
-        way_pts = self.detection(raw_img)
+        ret = self.detection(raw_img)
         print("Detection takes time: {:.3f} seconds".format(time.time() - start_time))
 
         # output images for debug
@@ -77,7 +77,11 @@ class LaneDetector():
          
         # Do not update control signal. 
         # Because it cannot fit polyline if way points < 3
-        if way_pts is None or len(way_pts) < 3:
+        if ret is None:
+            return
+        
+        _, _, way_pts = ret
+        if len(way_pts) < 3:
             return
         else:
             self.controller.run(way_pts)
@@ -88,7 +92,7 @@ class LaneDetector():
         """
         ### 1. sliding window to find the base point
         height, width = binary_warped.shape
-        nwindows = 15
+        # nwindows = 15
         sliding_offset = 5
         margin = 70
         best_base_x = -1
@@ -130,7 +134,9 @@ class LaneDetector():
         basex = best_base_x
         lane_pts = []
         prev_basex_list = []
-        for i in range(nwindows):
+        # for i in range(nwindows):
+        i = 0
+        while True:
             win_top = height - (i + 1) * self.window_height
             win_bottom = win_top + self.window_height
             
@@ -160,6 +166,8 @@ class LaneDetector():
             lane_pts.append([basex, basey])
             prev_basex_list.append(basex)
                 
+            i += 1
+            
             # visualization
             color_warped = cv2.rectangle(
                 color_warped, (basex - margin, win_top), (basex +margin, win_bottom), (0, 0, 255))
@@ -318,7 +326,7 @@ class LaneDetector():
         height, width = img.shape[:2]
         self.update_waypoints(ret, width, height, look_ahead_dist = 1.0)
         
-        return self.way_pts
+        return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR), self.way_pts
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
