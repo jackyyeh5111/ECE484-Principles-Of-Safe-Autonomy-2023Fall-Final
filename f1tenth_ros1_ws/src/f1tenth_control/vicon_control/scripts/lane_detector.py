@@ -462,9 +462,14 @@ class LaneDetector():
         """ 
             Extend the curve to find the most suitable way point
         """
-        self.look_ahead
         lanex = [pt[0] for pt in targ_pts]
         laney = [pt[1] for pt in targ_pts]
+        
+        look_ahead = self.look_ahead
+        # num_waypt = len(lanex)
+        # if num_waypt > 10:
+        #     look_ahead = 1.5
+            
         lane_fit = np.polyfit(lanex, laney, deg=2)
         max_x = np.max(lanex)
         min_x = np.min(lanex)
@@ -477,7 +482,7 @@ class LaneDetector():
             dist = np.hypot(x, y)
             
             steering_based_pt = [x, y]
-            if dist > self.look_ahead:
+            if dist > look_ahead:
                 break
             
         return steering_based_pt
@@ -498,9 +503,9 @@ class LaneDetector():
         #         break
 
         ## lateral control using pure pursuit
-        # self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts)
-        self.goal_x = self.targ_pts[-1][0]
-        self.goal_y = self.targ_pts[-1][1]
+        self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts)
+        # self.goal_x = self.targ_pts[-1][0]
+        # self.goal_y = self.targ_pts[-1][1]
         
         ## true look-ahead distance between a waypoint and current position
         ld = np.hypot(self.goal_x, self.goal_y)
@@ -513,51 +518,7 @@ class LaneDetector():
         target_steering_deg = round(np.degrees(target_steering))
         # alpha = np.arctan2(self.goal_y, self.goal_x)
         
-        #### hang controller ####
-        # alpha = np.arctan2(self.goal_y, self.goal_x)
-        # k       = 0.1
-        # angle_i = np.arctan2(k * 2 * self.wheelbase * np.sin(alpha), ld)
-        # angle   = angle_i*2
-        #             # ----------------- tuning this part as needed -----------------
-        # target_steering = round(np.clip(angle, -0.6, 0.3), 3)
-        # target_steering_deg = round(np.degrees(target_steering))
-
-        
-        #### PID ####
-        # ct_error =  self.targ_pts[0][1]
-        # pid_ang = self.kp*ct_error + self.kd * ((ct_error-self.prev_error) / self.dt)
-        # self.prev_error = ct_error
-        # angle = np.arctan2((2 * self.wheelbase * np.sin(alpha)) / ld, 1) + pid_ang
-        # target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
-        # target_steering_deg = round(np.degrees(target_steering))
-        
-        ## compute track curvature for longititudal control
-        num_waypts = len(self.targ_pts)
-        idxs = [0, num_waypts // 2, num_waypts - 1]
-            
-        if len(self.targ_pts) >= 3:
-            dx0 = self.targ_pts[idxs[1]][0] - self.targ_pts[idxs[0]][0]
-            dy0 = self.targ_pts[idxs[1]][1] - self.targ_pts[idxs[0]][1]
-            dx1 = self.targ_pts[idxs[2]][0] - self.targ_pts[idxs[1]][0]
-            dy1 = self.targ_pts[idxs[2]][1] - self.targ_pts[idxs[1]][1]
-    
-            # dx0 = self.targ_pts[-2][0] - self.targ_pts[-3][0]
-            # dy0 = self.targ_pts[-2][1] - self.targ_pts[-3][1]
-            # dx1 = self.targ_pts[-1][0] - self.targ_pts[-2][0]
-            # dy1 = self.targ_pts[-1][1] - self.targ_pts[-2][1]
-            ddx, ddy = dx1 - dx0, dy1 - dy0
-            curvature = np.inf if dx1 == 0 and dy1 == 0 else abs((dx1*ddy - dy1*ddx) / (dx1**2 + dy1**2) ** (3/2))
-        else:
-            curvature = np.inf
-
-        ## adjust speed according to curvature and steering angle
-        curvature = min(self.curv_max, curvature)
-        curvature = max(self.curv_min, curvature)
-        target_velocity = self.vel_max - (self.vel_max - self.vel_min) * curvature / (self.curv_max - self.curv_min)
-        steering_limit = 60
-        if target_steering >= np.radians(steering_limit):
-            target_velocity = self.vel_min
-        
+        target_velocity = self.vel_min
         if not self.debug_mode:
             self.drive_msg.header.stamp = rospy.get_rostime()
             self.drive_msg.drive.steering_angle = target_steering
@@ -568,7 +529,7 @@ class LaneDetector():
             "lookahead: {:.3f}".format(ld),
             # "ct_error: {:.3f}".format(ct_error),
             "steering(deg): {}".format(target_steering_deg),
-            "curvature: {:.3f}".format(curvature),
+            # "curvature: {:.3f}".format(curvature),
             "target_vel: {:.2f}".format(target_velocity),
             "steer_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y)
         ]
