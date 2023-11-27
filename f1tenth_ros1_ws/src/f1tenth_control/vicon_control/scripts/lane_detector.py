@@ -42,6 +42,7 @@ parser.add_argument('--curv_max', type=float, default=0.4)
 parser.add_argument('--vel_min', type=float, default=1.0)
 parser.add_argument('--vel_max', type=float, default=1.0)
 parser.add_argument('--look_ahead', type=float, default=-1.0)
+parser.add_argument('--max_look_ahead', type=float, default=1.5)
 parser.add_argument('--angle_diff_thres', type=float, default=2.0)
 parser.add_argument('--kp', type=float, default=1.5)
 parser.add_argument('--kd', type=float, default=0.05)
@@ -68,6 +69,7 @@ class LaneDetector():
         self.vel_min = args.vel_min
         self.vel_max = args.vel_max
         self.look_ahead = args.look_ahead
+        self.max_look_ahead = args.max_look_ahead
         self.wheelbase = 0.325
         self.debug_mode = debug_mode
         
@@ -457,6 +459,8 @@ class LaneDetector():
         laney = [pt[1] for pt in targ_pts]
         
         look_ahead = self.look_ahead
+        if look_ahead > self.max_look_ahead:
+            look_ahead = self.max_look_ahead
         # num_waypt = len(lanex)
         # if num_waypt > 10:
         #     look_ahead = 1.5
