@@ -451,16 +451,16 @@ class LaneDetector():
         
         return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR), self.way_pts
 
-    def get_steering_based_point(self, targ_pts):
+    def get_steering_based_point(self, targ_pts, look_ahead=None):
         """ 
             Extend the curve to find the most suitable way point
         """
         lanex = [pt[0] for pt in targ_pts]
         laney = [pt[1] for pt in targ_pts]
         
-        look_ahead = self.look_ahead
-        if look_ahead > self.max_look_ahead:
-            look_ahead = self.max_look_ahead
+        if look_ahead is None:
+            look_ahead = self.look_ahead
+
         # num_waypt = len(lanex)
         # if num_waypt > 10:
         #     look_ahead = 1.5
@@ -505,6 +505,9 @@ class LaneDetector():
             self.goal_y = self.targ_pts[-1][1]
             
         ## true look-ahead distance between a waypoint and current position
+        ld = np.hypot(self.goal_x, self.goal_y)
+        if ld > self.max_look_ahead:
+            self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts, self.max_look_ahead)
         ld = np.hypot(self.goal_x, self.goal_y)
         
         # # find target steering angle (tuning this part as needed)
