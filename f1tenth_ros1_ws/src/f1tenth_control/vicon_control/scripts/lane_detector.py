@@ -117,20 +117,8 @@ class LaneDetector():
         ret = self.detection(raw_img)
         print("Detection takes time: {:.3f} seconds".format(time.time() - start_time))
 
-        if ret is None:
-            print ('ret is None. Use last time waypoints')
-            # return
-        # min_way_pts = 3
-        # if len(way_pts) < min_way_pts:
-        #     print ('Number of detected way_pts is less than {}.  Use last time waypoints.'.format(min_way_pts))
-            # return
-        
         self.run(self.get_latest_waypoints())
-        
-        # Do not update control signal. 
-        # Because it cannot fit polyline if way points < 3
-        # _, _, way_pts = ret
-        
+                
         # output images for debug
         self.cnt += 1
         OUTPUT_DIR = os.path.join('test_images', self.output_dir)
@@ -377,6 +365,8 @@ class LaneDetector():
             # only update way pts when succefully fit lines
             if len(way_pts) >= 3:
                 self.way_pts = way_pts
+            else:
+                print ('Number of detected way_pts < 3. Use waypoints of previous frame')
     
     def get_matrix_calibration(self, img_shape,
                                src_leftx=218,
@@ -446,6 +436,7 @@ class LaneDetector():
         # line fit
         ret = self.line_fit(color_warped)
         if ret is None: # fail to polyfit waypoints
+            print ('Cannot find a single waypoint. Use waypoints of previous frame')
             return None
             
         # convert to calibration coords
