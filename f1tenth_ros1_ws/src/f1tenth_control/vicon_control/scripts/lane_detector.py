@@ -41,7 +41,7 @@ parser.add_argument('--curv_min', type=float, default=0.0)
 parser.add_argument('--curv_max', type=float, default=0.4)
 parser.add_argument('--vel_min', type=float, default=1.0)
 parser.add_argument('--vel_max', type=float, default=1.0)
-parser.add_argument('--look_ahead', type=float, default=1.0)
+parser.add_argument('--look_ahead', type=float, default=-1.0)
 parser.add_argument('--angle_diff_thres', type=float, default=2.0)
 parser.add_argument('--kp', type=float, default=1.5)
 parser.add_argument('--kd', type=float, default=0.05)
@@ -458,7 +458,7 @@ class LaneDetector():
         
         return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR), self.way_pts
 
-    def get_steering_based_point(self, targ_pts, max_step = 100):
+    def get_steering_based_point(self, targ_pts):
         """ 
             Extend the curve to find the most suitable way point
         """
@@ -471,19 +471,16 @@ class LaneDetector():
         #     look_ahead = 1.5
             
         lane_fit = np.polyfit(lanex, laney, deg=2)
-        max_x = np.max(lanex)
-        min_x = np.min(lanex)
-        step = (max_x - min_x) / 50
-        
         steering_based_pt = [-1, -1]
-        for i in range(max_step):
-            x = min_x + i*step
+        x = lanex[0]
+        while True:
             y = np.polyval(lane_fit, x)
             dist = np.hypot(x, y)
-            
             steering_based_pt = [x, y]
             if dist > look_ahead:
                 break
+            
+            x += 0.01 # meter
             
         return steering_based_pt
         
@@ -503,10 +500,15 @@ class LaneDetector():
         #         break
 
         ## lateral control using pure pursuit
-        self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts)
-        # self.goal_x = self.targ_pts[-1][0]
-        # self.goal_y = self.targ_pts[-1][1]
-        
+        if self.look_ahead > 0:
+            print ("fixed look_ahead distance")
+            self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts)
+        else:
+            print ("dynamic look_ahead distance")
+            # Use the last way point as our target point
+            self.goal_x = self.targ_pts[-1][0]
+            self.goal_y = self.targ_pts[-1][1]
+            
         ## true look-ahead distance between a waypoint and current position
         ld = np.hypot(self.goal_x, self.goal_y)
         

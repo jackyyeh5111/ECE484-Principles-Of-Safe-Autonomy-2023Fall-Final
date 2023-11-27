@@ -2,13 +2,15 @@ import numpy as np
 import cv2
 import os
 import pathlib
+import sys
+
 def imshow(window_name, image):
     cv2.imshow(window_name, image)
     cv2.waitKey(0)
     cv2.destroyAllWindows()
 
-dir1 = '/Users/jackyyeh/Desktop/Courses/UIUC/ECE484-Principles-Of-Safe-Autonomy/ECE484-Principles-Of-Safe-Autonomy-2023Fall-Final/f1tenth_ros1_ws/src/f1tenth_control/vicon_control/scripts/debug_results/debug_results_jay'
-dir2 = '/Users/jackyyeh/Desktop/Courses/UIUC/ECE484-Principles-Of-Safe-Autonomy/ECE484-Principles-Of-Safe-Autonomy-2023Fall-Final/f1tenth_ros1_ws/src/f1tenth_control/vicon_control/scripts/debug_results/debug_results_new'
+dir1 = sys.argv[1]
+dir2 = sys.argv[2]
 
 OUTPUT_DIR = 'debug_results/compare'
 pathlib.Path(OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
