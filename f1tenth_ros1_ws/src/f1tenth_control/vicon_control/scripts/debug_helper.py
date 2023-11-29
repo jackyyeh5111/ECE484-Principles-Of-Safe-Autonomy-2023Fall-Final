@@ -29,14 +29,14 @@ OUTPUT_DIR = 'debug_results/debug_results_new'
 
 # ctrl_params displayed on results
 ctrl_params = [
+    'obs_tolerate: {}'.format(args.obstacle_tolerate_dist),
+    'max_look_ahead: {}'.format(args.max_look_ahead),
+    'look_ahead: {}'.format(args.look_ahead),
     'steering_k: {}'.format(args.steering_k),
     'steering_i: {}'.format(args.steering_i),
     'angle_limit: {}'.format(args.angle_limit),
-    'curv_min: {}'.format(args.curv_min),
-    'curv_max: {}'.format(args.curv_max),
     'vel_min: {}'.format(args.vel_min),
     'vel_max: {}'.format(args.vel_max),
-    'look_ahead: {}'.format(args.look_ahead),
 ]
 
 
@@ -96,9 +96,9 @@ def run_on_folder(img_path, lane_detector, fail_paths):
         if ret_lane is None:
             fail_paths.append(img_path)
             return
-        vis_warped, color_warped, way_pts = ret_lane
+        reach_boundary, vis_warped, color_warped, way_pts = ret_lane
         controller = lane_detector
-        ctrl_msgs = controller.run(way_pts)
+        ctrl_msgs = controller.run(way_pts, reach_boundary)
 
         out_img = get_output_img(raw_img, vis_warped, ctrl_msgs, way_pts)
         output_path = os.path.join(OUTPUT_DIR, img_name)

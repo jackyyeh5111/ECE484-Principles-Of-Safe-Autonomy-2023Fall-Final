@@ -47,6 +47,8 @@ parser.add_argument('--angle_diff_thres', type=float, default=2.0)
 parser.add_argument('--kp', type=float, default=1.5)
 parser.add_argument('--kd', type=float, default=0.05)
 parser.add_argument('--ki', type=float, default=0.0)
+parser.add_argument('--obstacle_tolerate_dist', type=float, default=-np.inf,
+                    help='car change velocity if obstacle is within this distance. Negative infinity means the car does not avoid obstacle')
 
 INCH2METER = 0.0254
 PIX2METER_X = 0.0009525 # meter
@@ -70,10 +72,12 @@ class LaneDetector():
         self.vel_max = args.vel_max
         self.look_ahead = args.look_ahead
         self.max_look_ahead = args.max_look_ahead
+        self.obstacle_tolerate_dist = args.obstacle_tolerate_dist
         self.wheelbase = 0.325
         self.debug_mode = debug_mode
         
         self.way_pts = []
+        self.reach_boundary = True
         self.cnt = 0
         # self.controller = F1tenth_controller(args)
         if not self.debug_mode:
@@ -119,7 +123,9 @@ class LaneDetector():
         ret = self.detection(raw_img)
         print("Detection takes time: {:.3f} seconds".format(time.time() - start_time))
 
-        self.run(self.get_latest_waypoints())
+        
+        latest_way_pts, latest_reach_boundary = self.get_latest_info()
+        self.run(latest_way_pts, latest_reach_boundary)
                 
         # output images for debug
         self.cnt += 1
@@ -186,8 +192,9 @@ class LaneDetector():
         basex = best_base_x
         lane_pts = []
         prev_basex_list = []
-        # for i in range(nwindows):
+
         i = 0
+        reach_boundary = False
         while True:
             win_top = height - (i + 1) * self.window_height
             win_bottom = win_top + self.window_height
@@ -209,7 +216,7 @@ class LaneDetector():
             reach_boundary = basex - margin < 0 or \
                             basex + margin >= width or \
                             win_top < 0
-            # if reach_boundary len(window_nonzerox) < minpix:
+
             if len(window_nonzerox) < minpix:
                 break
             
@@ -246,9 +253,9 @@ class LaneDetector():
 
         ret = {}
         ret['vis_warped'] = color_warped
-        # ret['lane_fit'] = lane_fit
         ret['lanex'] = lanex
         ret['laney'] = laney
+        ret['reach_boundary'] = reach_boundary
         return ret
     
     def color_thresh(self, img):
@@ -347,10 +354,10 @@ class LaneDetector():
 
         return warped_img, M, Minv
 
-    def get_latest_waypoints(self):
-        return self.way_pts
+    def get_latest_info(self):
+        return self.way_pts, self.reach_boundary
     
-    def update_waypoints(self, lanex, laney, width, height):
+    def update_waypoints(self, lanex, laney, width, height, reach_boundary):
             
             # transform from image coord (x, y) to camera coord in meters
             lanex = [(x - width // 2) * PIX2METER_X for x in lanex]
@@ -367,6 +374,7 @@ class LaneDetector():
             # only update way pts when succefully fit lines
             if len(way_pts) >= 3:
                 self.way_pts = way_pts
+                self.reach_boundary = reach_boundary
             else:
                 print ('Number of detected way_pts < 3. Use waypoints of previous frame')
     
@@ -447,9 +455,9 @@ class LaneDetector():
         
         # get get_waypoints
         height, width = img.shape[:2]
-        self.update_waypoints(clb_x, clb_y, width, height)
+        self.update_waypoints(clb_x, clb_y, width, height, ret['reach_boundary'])
         
-        return ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR), self.way_pts
+        return ret['reach_boundary'], ret['vis_warped'], cv2.cvtColor(color_warped, cv2.COLOR_GRAY2BGR), self.way_pts
 
     def get_steering_based_point(self, targ_pts, look_ahead=None):
         """ 
@@ -480,7 +488,7 @@ class LaneDetector():
         return steering_based_pt
         
         
-    def run(self, way_pts=None):
+    def run(self, way_pts=None, reach_boundary=True):
         ## find the goal point which is the last in the set of points less than lookahead distance
         if way_pts is None: # way_pts is provided by the perload file
             self.get_targ_points()
@@ -494,6 +502,10 @@ class LaneDetector():
         #         self.goal_x, self.goal_y = targ_pt[0], targ_pt[1]
         #         break
 
+        ### Determine speed ###
+        target_velocity = self.vel_max # constant speed
+        obs_detected = False # obstacle detected
+        
         ## lateral control using pure pursuit
         if self.look_ahead > 0:
             print ("fixed look_ahead distance")
@@ -504,21 +516,28 @@ class LaneDetector():
             self.goal_x = self.targ_pts[-1][0]
             self.goal_y = self.targ_pts[-1][1]
             
-        ## true look-ahead distance between a waypoint and current position
-        ld = np.hypot(self.goal_x, self.goal_y)
-        if ld > self.max_look_ahead:
-            self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts, self.max_look_ahead)
-        ld = np.hypot(self.goal_x, self.goal_y)
-        
-        # # find target steering angle (tuning this part as needed)
+            # look-ahead distance between the farthest waypoint and current position
+            ld_farthest_waypt = np.hypot(self.goal_x, self.goal_y)
+            
+            # Check if obstacle is right in the front.
+            if ld_farthest_waypt < self.obstacle_tolerate_dist and not reach_boundary:
+                obs_detected = True
+                target_velocity = 0
+            
+            # Find again the waypoint if look-ahead distance is too large.
+            # Car does not need to see that far.
+            if ld_farthest_waypt > self.max_look_ahead:
+                self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts, self.max_look_ahead)
+            
+            # true look-ahead distance between a waypoint and current position
+            ld = np.hypot(self.goal_x, self.goal_y)
+            
+        ### Determine target steering angle (tuning this part as needed) ###
         alpha = np.arctan2(self.goal_y, self.goal_x)
-        # angle = np.arctan2(( 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
         angle = np.arctan2((self.steering_k * 2 * self.wheelbase * np.sin(alpha)) / ld, 1) * self.steering_i
         target_steering = round(np.clip(angle, -np.radians(self.angle_limit), np.radians(self.angle_limit)), 3)
-        target_steering_deg = round(np.degrees(target_steering))
-        # alpha = np.arctan2(self.goal_y, self.goal_x)
+        target_steering_deg = round(np.degrees(target_steering)) # for msg display only
         
-        target_velocity = self.vel_min
         if not self.debug_mode:
             self.drive_msg.header.stamp = rospy.get_rostime()
             self.drive_msg.drive.steering_angle = target_steering
@@ -526,12 +545,14 @@ class LaneDetector():
             self.ctrl_pub.publish(self.drive_msg)
         
         msgs = [
+            "last waypt dist: {:.3f}".format(ld_farthest_waypt),
             "lookahead: {:.3f}".format(ld),
             # "ct_error: {:.3f}".format(ct_error),
             "steering(deg): {}".format(target_steering_deg),
-            # "curvature: {:.3f}".format(curvature),
             "target_vel: {:.2f}".format(target_velocity),
-            "steer_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y)
+            "steer_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y),
+            "reach_boundary: {}".format(reach_boundary),
+            "obs_detected: {}".format(obs_detected),
         ]
         
         # print msgs
@@ -570,7 +591,7 @@ def main():
         print ('\nStart navigation...')
         while not rospy.is_shutdown():
             # start_time = time.time()
-            # way_pts = lane_detector.get_latest_waypoints()
+            # way_pts = lane_detector.get_latest_info()
             
             # Do not update control signal. 
             # Because it cannot fit polyline if way points < 3
