@@ -506,7 +506,9 @@ class LaneDetector():
         target_velocity = self.vel_max # constant speed
         obs_detected = False # obstacle detected
         
-        ## lateral control using pure pursuit
+        ### lateral control using pure pursuit ###
+        
+        # Determine the target(self.goal_x, self.goal_y) point
         if self.look_ahead > 0:
             print ("fixed look_ahead distance")
             self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts)
@@ -529,8 +531,8 @@ class LaneDetector():
             if ld_farthest_waypt > self.max_look_ahead:
                 self.goal_x, self.goal_y = self.get_steering_based_point(self.targ_pts, self.max_look_ahead)
             
-            # true look-ahead distance between a waypoint and current position
-            ld = np.hypot(self.goal_x, self.goal_y)
+        # final look-ahead distance between a waypoint and current position
+        ld = np.hypot(self.goal_x, self.goal_y)
             
         ### Determine target steering angle (tuning this part as needed) ###
         alpha = np.arctan2(self.goal_y, self.goal_x)
@@ -545,15 +547,15 @@ class LaneDetector():
             self.ctrl_pub.publish(self.drive_msg)
         
         msgs = [
-            "last waypt dist: {:.3f}".format(ld_farthest_waypt),
-            "lookahead: {:.3f}".format(ld),
-            # "ct_error: {:.3f}".format(ct_error),
+            "lookahead: {:.2f}".format(ld),
             "steering(deg): {}".format(target_steering_deg),
             "target_vel: {:.2f}".format(target_velocity),
             "steer_pt: ({:.2f}, {:.2f})".format(self.goal_x, self.goal_y),
             "reach_boundary: {}".format(reach_boundary),
             "obs_detected: {}".format(obs_detected),
         ]
+        if self.look_ahead <= 0:
+            msgs = ["last waypt dist: {:.2f}".format(ld_farthest_waypt)] + msgs
         
         # print msgs
         print ('\n----- control msgs -----')
