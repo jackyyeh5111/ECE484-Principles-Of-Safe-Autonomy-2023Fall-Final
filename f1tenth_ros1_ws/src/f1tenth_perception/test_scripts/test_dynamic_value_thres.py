@@ -190,6 +190,7 @@ def color_thresh(img):
     blue_channel = img[:, :, 0].astype(np.float32)
     red_channel = img[:, :, 2].astype(np.float32)
     blud_red_diff = red_channel - blue_channel > 30
+    
 
     # Step 2. Convert the image from RGB to HSL
     # For HSL
@@ -228,12 +229,16 @@ def color_thresh(img):
         red_channel_warped, args.val_thres_percentile)
     # val_mean = np.mean(red_channel_warped)
     val_cond = (val_thres_min <= red_channel) & (red_channel <= 255)
-
+    
+    bias = 15
+    mean_val = np.mean(red_channel_warped)
+    mean_val_cond = mean_val + bias <= red_channel
+    
     # Step 5: Apply predefined hue threshold on image
     hue_cond = (hue_thres_min <= h) & (h <= hue_thres_max)
 
     # Step 6: Combine conditions to get final output
-    binary_output[val_cond & sat_cond & hue_cond & blud_red_diff] = 1
+    binary_output[val_cond & sat_cond & hue_cond & blud_red_diff & mean_val_cond] = 1
     # binary_output[val_cond & hue_cond & blud_red_diff] = 1
 
     # Step 7: Closing small holes inside the yellow lane
@@ -252,13 +257,16 @@ def color_thresh(img):
         vis_h = np.zeros_like(img)
         vis_s = np.zeros_like(img)
         vis_l = np.zeros_like(img)
+        vis_val_mean = np.zeros_like(img)
         vis_h[hue_cond] = 255
         putText(vis_h, "hue result")
         vis_s[sat_cond] = 255
         putText(vis_s, "sat result")
         vis_l[val_cond] = 255
         putText(vis_l, "val result")
-        imshow("hls result", np.hstack([img, vis_h, vis_s, vis_l]))
+        vis_val_mean[mean_val_cond] = 255
+        putText(vis_val_mean, "vis_val_mean")
+        imshow("hls result", np.hstack([img, vis_h, vis_s, vis_l, vis_val_mean]))
 
     ### visualization for hue testing ###
     if args.vis_sat:

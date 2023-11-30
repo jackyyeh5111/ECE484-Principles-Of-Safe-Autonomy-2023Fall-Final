@@ -27,6 +27,7 @@ parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
 parser.add_argument('--sat_cdf_lower_thres', type=float, default=0.5)
 parser.add_argument('--blue_red_diff_thres', type=int, default=30)
 parser.add_argument('--val_thres_percentile', type=int, default=65)
+parser.add_argument('--red_val_tolerance', type=int, default=15)
 parser.add_argument('--hue_thresh', type=str, default='15,40')
 parser.add_argument('--dilate_size', type=int, default=5)
 parser.add_argument('--perspective_pts', '-p',
@@ -107,6 +108,7 @@ class LaneDetector():
         self.dilate_size = args.dilate_size
         self.sat_cdf_lower_thres = args.sat_cdf_lower_thres
         self.blue_red_diff_thres = args.blue_red_diff_thres
+        self.red_val_tolerance = args.red_val_tolerance
         self.window_height = args.window_height
         
     def img_callback(self, data):
@@ -302,11 +304,14 @@ class LaneDetector():
         # val_mean = np.mean(red_channel_warped)
         val_cond = (val_thres_min <= red_channel) & (red_channel <= 255)
 
+        mean_red_val = np.mean(red_channel_warped)
+        mean_red_val_cond = mean_red_val + self.red_val_tolerance <= red_channel    
+    
         # Step 3: Apply predefined hue threshold on image
         hue_cond = (self.hue_thres_min <= h) & (h <= self.hue_thres_max)
         
         # combine conditions and get final output
-        binary_output[val_cond & sat_cond & hue_cond & blud_red_diff_cond] = 1
+        binary_output[val_cond & sat_cond & hue_cond & blud_red_diff_cond & mean_red_val_cond] = 1
 
         # closing
         kernel = np.ones((self.dilate_size, self.dilate_size), np.uint8)
