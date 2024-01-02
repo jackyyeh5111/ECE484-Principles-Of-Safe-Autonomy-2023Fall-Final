@@ -44,6 +44,7 @@ Testing environment: Ubuntu 20.04 LTS
 
 #### online usage
 ```python
+$ cd src/
 $ python3 lane_detector.py [params...]
 ```
 
