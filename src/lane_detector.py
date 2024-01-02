@@ -5,7 +5,6 @@ import cv2
 import rospy
 import os
 import pathlib
-from vicon_tracker_pp import F1tenth_controller
 
 from sensor_msgs.msg import Image
 from std_msgs.msg import Header

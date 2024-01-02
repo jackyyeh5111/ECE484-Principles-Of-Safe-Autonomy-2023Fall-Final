@@ -4,7 +4,6 @@ from __future__ import print_function
 
 # ROS Headers
 import rospy
-from vicon_tracker_pp import F1tenth_controller
 from lane_detector import LaneDetector
 import argparse
 import pathlib

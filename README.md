@@ -1,6 +1,6 @@
-# ECE484-Principles-Of-Safe-Autonomy-2023Fall-Final
+# Lane Following using Pure Pursuit Controller on F1TENTH Car
 
-Welcome! This is the final project for course ECE484-Principles-Of-Safe-Autonomy in 2023 Fall. The course page can be found [here](https://publish.illinois.edu/robotics-autonomy-resources/f1tenth/).
+Welcome! This is our final project for course ECE484-Principles-Of-Safe-Autonomy in 2023 Fall. The course page can be found [here](https://publish.illinois.edu/robotics-autonomy-resources/f1tenth/).
 
 The project implements a vision-based lane following system. Our aim to make vehicle follow the lane accurately and quickly without collision using Pure Pursuit Controller given RGB images. Our vehicle platform is build on [F1TENTH](https://f1tenth.org/).
 
@@ -25,6 +25,9 @@ The whole system is integrated with ROS. It consists of four primary components:
 3. State estimation
 4. Controller
 
+## File Structure
+
+
 ## Quick Starter Guide
 Testing environment: Ubuntu 20.04 LTS
 
@@ -44,6 +47,7 @@ Testing environment: Ubuntu 20.04 LTS
 
 #### online usage
 ```python
+$ cd src/
 $ python3 lane_detector.py [params...]
 ```
 
