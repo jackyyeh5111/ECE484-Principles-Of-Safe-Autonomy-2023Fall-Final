@@ -21,33 +21,36 @@ parser = argparse.ArgumentParser()
 
 # lane detector arguments
 parser.add_argument('--output_dir', '-o', type=str, default='')
-parser.add_argument('--output_freq', type=int, default=1)
-parser.add_argument('--gradient_thresh', '-g', type=str, default='75,150')
-# parser.add_argument('--sat_thresh', type=str, default='60,255')
-parser.add_argument('--sat_cdf_lower_thres', type=float, default=0.5)
-parser.add_argument('--blue_red_diff_thres', type=int, default=30)
-parser.add_argument('--val_thres_percentile', type=int, default=65)
+parser.add_argument('--output_freq', type=int, default=1,
+                    help='output frame to folder. Requires output_dir not empty.')
+parser.add_argument('--sat_cdf_lower_thres', type=float,
+                    default=0.5, help='heuristic lower thres for saturation cdf.')
+parser.add_argument('--blue_red_diff_thres', type=int,
+                    default=30, help='blue and red channel difference thres')
+parser.add_argument('--val_thres_percentile', type=int,
+                    default=65, help='value percentile thres')
 parser.add_argument('--red_val_tolerance', type=int, default=15)
-parser.add_argument('--hue_thresh', type=str, default='15,40')
-parser.add_argument('--dilate_size', type=int, default=5)
+parser.add_argument('--hue_thresh', type=str, default='15,40',
+                    help='valid range for hue channel after HSL conversion')
+parser.add_argument('--dilate_size', type=int, default=5,
+                    help='kernel size for closing technique to remove noise')
 parser.add_argument('--perspective_pts', '-p',
-                    type=str, default='218,467,348,0')
-parser.add_argument('--window_height', type=int, default=20)
+                    type=str, default='115,525,294,0', help='param for perpective projection. Four number represents respectively for src_leftx, src_rightx, laney, offsety.')
+parser.add_argument('--window_height', type=int, default=20,
+                    help='window height for lane fitting.')
 
 # controller arguments
-parser.add_argument('--steering_k', type=float, default=1.0)
-parser.add_argument('--steering_i', type=float, default=1.0)
-parser.add_argument('--angle_limit', type=float, default=30)
+parser.add_argument('--steering_k', type=float, default=0.35)
+parser.add_argument('--steering_i', type=float, default=1.8)
 parser.add_argument('--curv_min', type=float, default=0.0)
 parser.add_argument('--curv_max', type=float, default=0.4)
-parser.add_argument('--vel_min', type=float, default=1.0)
-parser.add_argument('--vel_max', type=float, default=1.0)
-parser.add_argument('--look_ahead', type=float, default=-1.0)
-parser.add_argument('--max_look_ahead', type=float, default=1.5)
-parser.add_argument('--angle_diff_thres', type=float, default=2.0)
-parser.add_argument('--kp', type=float, default=1.5)
-parser.add_argument('--kd', type=float, default=0.05)
-parser.add_argument('--ki', type=float, default=0.0)
+parser.add_argument('--angle_limit', type=float, default=30)
+parser.add_argument('--vel_min', type=float, default=1.5)
+parser.add_argument('--vel_max', type=float, default=1.5)
+parser.add_argument('--look_ahead', type=float, default=-1.0,
+                    help='fixed look ahead distance for pure pursuit controller. -1 denotes dynamic lookahead distance, which directly use the most distant waypoint as target point')
+parser.add_argument('--max_look_ahead', type=float,
+                    default=1.5, help='In case car looks too far away.')
 parser.add_argument('--obstacle_tolerate_dist', type=float, default=-np.inf,
                     help='car change velocity if obstacle is within this distance. Negative infinity means the car does not avoid obstacle')
 

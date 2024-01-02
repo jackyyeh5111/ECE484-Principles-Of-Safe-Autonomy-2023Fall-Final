@@ -122,7 +122,11 @@ class Debugger():
             print(e)
         
         raw_img = cv_image.copy()
-        vis_warped, color_warped, way_pts = self.lane_detector.detection(raw_img)
+        ret_lane = self.lane_detector.detection(raw_img)
+        if ret_lane is None:
+            return
+        reach_boundary, vis_warped, color_warped, way_pts = ret_lane
+        
         # ctrl_msgs = self.controller.run(way_pts)
         ctrl_msgs = self.lane_detector.run(way_pts)
 
