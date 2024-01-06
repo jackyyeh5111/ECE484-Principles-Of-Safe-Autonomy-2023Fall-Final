@@ -8,22 +8,24 @@ Please check out my portfolio post or our [final presentation video](https://www
 
 ## Overview
 The vehicle is able to follow the lane accurately without collision:
-![demo](pics/demo.gif?raw=true  "demo")
+<figure style="border-style: none">
+<img src="https://github.com/jackyyeh5111/jackyyeh5111.github.io/assets/22386566/7e11faf1-e84e-420c-ac01-fbc8b3902dc0">
+</figure>
 
 Lane detection result:  
-
-<img src='pics/lane_detect.gif' width='200'>
+<figure style="border-style: none">
+<img width="200" alt="image" src="https://media1.giphy.com/media/v1.Y2lkPTc5MGI3NjExdXltaXNscHg5d2tvemNubWNmZTVzZzJ4MWp2cnUwY242a3NqZG1iYyZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/QL9o5rpbySvFbv40mc/giphy.gif">
+</figure>
 
 ## Method
-<img src='pics/diagram.png' width='750'>
+<img width="936" alt="image" src="https://github.com/jackyyeh5111/jackyyeh5111.github.io/assets/22386566/2c44461c-4c9d-469f-abe3-95bb0d005945">
 
 The project built vision-based lane following system from scratch. Lane detector identifies the lane from the captured frame and provides imaginary waypoints candidates for the controller. Next, the controller selects the best waypoint based on the vehicle state, and sends out next control signal.
 
-The whole system is integrated with ROS. It consists of four primary components:
+The whole system is integrated with ROS. It consists of three primary components:
 1. Camera calibration
 2. Lane detection
-3. State estimation
-4. Controller
+3. Controller
 
 ## Quick Starter Guide
 Testing environment: Ubuntu 20.04 LTS
@@ -71,6 +73,8 @@ For offline, you have to prepare data folder beforehand. Two types of input data
     ```
 
 ## Simulation
+Please refer to the folder [controller_simulation](https://github.com/jackyyeh5111/ECE484-Principles-Of-Safe-Autonomy-2023Fall-Final/tree/main/controller_simulation) for simulation.
+![ezgif-7-0647951daf](https://github.com/jackyyeh5111/jackyyeh5111.github.io/assets/22386566/105990e7-43ca-422c-96f3-22af7c10cd99)
 
 ## Acknowledgement
 My great team members:
