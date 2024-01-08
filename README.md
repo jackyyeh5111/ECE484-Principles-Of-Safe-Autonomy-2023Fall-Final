@@ -4,7 +4,7 @@ Welcome! This is our final project for course ECE484-Principles-Of-Safe-Autonomy
 
 The project implements a vision-based lane following system. Our aim to make vehicle follow the lane accurately and quickly without collision using Pure Pursuit Controller given RGB images. Our vehicle platform is build on [F1TENTH](https://f1tenth.org/).
 
-Please check out my portfolio post or our [final presentation video](https://www.youtube.com/watch?v=mselI6W_V-o) for a greater detailed description.
+Please check out my [portfolio post](https://jackyyeh5111.github.io/lane-following-using-pure-pursuit-controller-on-f1tenth-car/) or our [final presentation video](https://www.youtube.com/watch?v=mselI6W_V-o) for a greater detailed description.
 
 ## Overview
 The vehicle is able to follow the lane accurately without collision:
@@ -26,9 +26,6 @@ The whole system is integrated with ROS. It consists of three primary components
 1. Camera calibration
 2. Lane detection
 3. Controller
-
-## File Structure
-
 
 ## Quick Starter Guide
 Testing environment: Ubuntu 20.04 LTS
